@@ -1,6 +1,6 @@
 $ErrorActionPreference="Stop"
-# Create venv (Python 3.10 recommended)
-py -3.10 -m venv .\.venv
+# Create venv (Python 3.9 for RLGym compatibility)
+py -3.9 -m venv .\.venv
 .\.venv\Scripts\python -m pip install --upgrade pip wheel
 
 # Try CUDA torch if NVIDIA GPU detected
@@ -12,7 +12,4 @@ if ($gpu) {
 .\.venv\Scripts\python -m pip install -r .\env\requirements.txt
 
 # Quick import check
-.\.venv\Scripts\python - << 'PY'
-import torch, rlgym, rlbot
-print("OK:", torch.__version__)
-PY
+.\.venv\Scripts\python -c "import torch, rlgym, rlbot; print('OK:', torch.__version__)"

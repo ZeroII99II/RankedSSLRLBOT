@@ -12,7 +12,7 @@ powershell -ExecutionPolicy Bypass -File .\env\setup.ps1
 ### 2) Train
 
 ```bash
-python ModernTrainer.py --cfg configs/ppo_ssl.yaml --curr configs/curriculum.yaml
+python src/training/train.py --cfg configs/ppo_ssl.yaml --curr configs/curriculum.yaml
 ```
 
 ### 3) Export TorchScript
