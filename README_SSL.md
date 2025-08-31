@@ -4,47 +4,30 @@ A clean, reproducible reinforcement learning pipeline for training SSL-level Roc
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### 1) Environment
+```powershell
+powershell -ExecutionPolicy Bypass -File .\env\setup.ps1
+```
 
-- Python 3.10+
-- Windows 10/11 (primary support)
-- CUDA-capable GPU (recommended)
-- Rocket League installed
-- RLBot installed
+### 2) Train
 
-### Installation
+```bash
+python ModernTrainer.py --cfg configs/ppo_ssl.yaml --curr configs/curriculum.yaml
+```
 
-1. **Clone and setup environment:**
-   ```bash
-   # Windows PowerShell
-   .\env\setup.ps1
-   
-   # Linux/macOS
-   bash env/setup.sh
-   ```
+### 3) Export TorchScript
 
-2. **Train the bot:**
-   ```bash
-   # Windows
-   .\scripts\run_train.bat
-   
-   # Linux/macOS
-   bash scripts/run_train.sh
-   ```
+```bash
+python -m src.inference.export --ckpt models/checkpoints/best.pt --out models/exported/ssl_policy.ts
+```
 
-3. **Export trained model:**
-   ```bash
-   python -m src.inference.export --ckpt models/checkpoints/best.pt --out models/exported/ssl_policy.ts
-   ```
+### 4) Watch in Rocket League (RLBot)
 
-4. **Run live match:**
-   ```bash
-   # Windows
-   .\scripts\run_rlbot_local.bat
-   
-   # Linux/macOS
-   bash scripts/run_rlbot_local.sh
-   ```
+```bash
+scripts/run_rlbot_local.bat  # or .sh on Linux/Mac
+```
+
+> Set `SSL_POLICY_PATH` env var to point RLBot to a different model if needed.
 
 ## 📋 Table of Contents
 

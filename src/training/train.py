@@ -514,11 +514,36 @@ def main():
                        help='Path to checkpoint to resume from')
     parser.add_argument('--max-steps', type=int, default=1000000,
                        help='Maximum training steps')
+    parser.add_argument('--device', type=str, default='auto',
+                       help='Device to use (auto, cpu, cuda)')
+    parser.add_argument('--log-dir', type=str, default='runs/ssl_bot_training',
+                       help='Directory for logging')
+    parser.add_argument('--checkpoint-dir', type=str, default='models/checkpoints',
+                       help='Directory for saving checkpoints')
     
     args = parser.parse_args()
     
+    # Validate config files exist
+    if not os.path.exists(args.cfg):
+        raise FileNotFoundError(f"Config file not found: {args.cfg}")
+    if not os.path.exists(args.curr):
+        raise FileNotFoundError(f"Curriculum file not found: {args.curr}")
+    
     # Create trainer
     trainer = PPOTrainer(args.cfg, args.curr)
+    
+    # Override device if specified
+    if args.device != 'auto':
+        trainer.device = torch.device(args.device)
+        trainer.policy = trainer.policy.to(trainer.device)
+        trainer.critic = trainer.critic.to(trainer.device)
+    
+    # Override directories if specified
+    if args.log_dir != 'runs/ssl_bot_training':
+        trainer.writer = SummaryWriter(log_dir=args.log_dir)
+    if args.checkpoint_dir != 'models/checkpoints':
+        trainer.checkpoint_dir = Path(args.checkpoint_dir)
+        trainer.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     
     # Start training
     trainer.train(max_steps=args.max_steps, resume_from=args.resume)
