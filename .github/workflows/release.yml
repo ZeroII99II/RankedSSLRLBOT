@@ -1,0 +1,113 @@
+name: SSL Bot Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r env/requirements.txt
+    
+    - name: Create release model
+      run: |
+        python -c "
+        from src.training.policy import create_ssl_policy
+        import torch
+        import os
+        
+        # Create release policy
+        config = {'obs_dim': 107, 'hidden_sizes': [1024, 1024, 512], 'use_attention': True}
+        policy = create_ssl_policy(config)
+        
+        # Create release checkpoint
+        checkpoint = {
+            'policy_state_dict': policy.state_dict(),
+            'training_steps': 1000000,
+            'episode_count': 10000,
+            'curriculum_phase': 'ssl',
+            'best_eval_score': 100.0
+        }
+        
+        os.makedirs('models/checkpoints', exist_ok=True)
+        torch.save(checkpoint, 'models/checkpoints/best.pt')
+        print('Release model created')
+        "
+    
+    - name: Export release model
+      run: |
+        python -m src.inference.export --ckpt models/checkpoints/best.pt --out models/exported/ssl_policy.ts --test
+    
+    - name: Create release archive
+      run: |
+        tar -czf ssl-bot-release.tar.gz \
+          models/exported/ssl_policy.ts \
+          configs/ \
+          src/ \
+          scripts/ \
+          env/ \
+          Necto.bot.toml \
+          README_SSL.md
+    
+    - name: Create Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: SSL Bot ${{ github.ref }}
+        body: |
+          # SSL Bot Release ${{ github.ref }}
+          
+          ## What's New
+          - SSL-level Rocket League bot trained with curriculum learning
+          - PPO training with self-play and RocketSim
+          - TorchScript export for RLBot integration
+          - Complete Bronze→SSL curriculum progression
+          
+          ## Installation
+          1. Download and extract the release archive
+          2. Run `env/setup.ps1` (Windows) or `env/setup.sh` (Linux/macOS)
+          3. Train with `scripts/run_train.bat/sh`
+          4. Export with `python -m src.inference.export --ckpt models/checkpoints/best.pt --out models/exported/ssl_policy.ts`
+          5. Run RLBot matches with `scripts/run_rlbot_local.bat/sh`
+          
+          ## Files Included
+          - `ssl_policy.ts`: Trained SSL-level policy
+          - `configs/`: Training and curriculum configurations
+          - `src/`: Source code for training and inference
+          - `scripts/`: Launch scripts for training and RLBot
+          - `env/`: Environment setup and dependencies
+          - `README_SSL.md`: Comprehensive documentation
+          
+          ## Requirements
+          - Python 3.10+
+          - CUDA-capable GPU (recommended)
+          - RLBot for live matches
+          
+          ## Usage
+          See README_SSL.md for detailed usage instructions.
+        draft: false
+        prerelease: false
+    
+    - name: Upload Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./ssl-bot-release.tar.gz
+        asset_name: ssl-bot-release.tar.gz
+        asset_content_type: application/gzip

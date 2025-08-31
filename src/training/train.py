@@ -1,0 +1,528 @@
+"""
+SSL Bot Training Script with PPO and Curriculum Learning.
+Implements vectorized environments using RocketSim for fast training.
+"""
+
+import argparse
+import os
+import time
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Any
+import yaml
+import numpy as np
+import torch
+import torch.nn as nn
+from torch.utils.tensorboard import SummaryWriter
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
+from rich.table import Table
+from rich.panel import Panel
+
+# RLGym imports
+import rlgym
+from rlgym.utils.action_parsers import DefaultAction
+from rlgym.utils.terminal_conditions import common_conditions
+
+# Local imports
+from .observers import SSLObsBuilder
+from .rewards import SSLRewardFunction
+from .state_setters import SSLStateSetter
+from .curriculum import CurriculumManager
+from .policy import SSLPolicy, SSLCritic, create_ssl_policy, create_ssl_critic
+
+
+class PPOTrainer:
+    """
+    PPO trainer for SSL bot with curriculum learning and self-play.
+    """
+    
+    def __init__(self, config_path: str, curriculum_path: str):
+        self.console = Console()
+        self.config = self._load_config(config_path)
+        self.curriculum = CurriculumManager(curriculum_path)
+        
+        # Setup device
+        self.device = self._setup_device()
+        
+        # Initialize models
+        self.policy = create_ssl_policy(self.config['policy']).to(self.device)
+        self.critic = create_ssl_critic(self.config['policy']).to(self.device)
+        
+        # Setup optimizers
+        self.policy_optimizer = torch.optim.Adam(
+            self.policy.parameters(),
+            lr=self.config['ppo']['actor_lr']
+        )
+        self.critic_optimizer = torch.optim.Adam(
+            self.critic.parameters(),
+            lr=self.config['ppo']['critic_lr']
+        )
+        
+        # Setup environment
+        self.env = self._create_environment()
+        self.action_parser = DefaultAction()
+        
+        # Training state
+        self.training_steps = 0
+        self.episode_count = 0
+        self.best_eval_score = float('-inf')
+        
+        # Setup logging
+        self.writer = SummaryWriter(log_dir='runs/ssl_bot_training')
+        
+        # Setup checkpointing
+        self.checkpoint_dir = Path('models/checkpoints')
+        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        
+        self.console.print(f"[green]SSL Bot Trainer initialized[/green]")
+        self.console.print(f"Device: {self.device}")
+        self.console.print(f"Current phase: {self.curriculum.get_current_phase().name}")
+    
+    def _load_config(self, config_path: str) -> Dict[str, Any]:
+        """Load training configuration."""
+        with open(config_path, 'r') as f:
+            return yaml.safe_load(f)
+    
+    def _setup_device(self) -> torch.device:
+        """Setup training device."""
+        if self.config['device']['auto_detect']:
+            if torch.cuda.is_available() and self.config['device']['cuda']:
+                device = torch.device('cuda')
+                self.console.print(f"[green]Using CUDA: {torch.cuda.get_device_name()}[/green]")
+            else:
+                device = torch.device('cpu')
+                self.console.print("[yellow]Using CPU[/yellow]")
+        else:
+            device = torch.device(self.config['device'].get('device', 'cpu'))
+        
+        return device
+    
+    def _create_environment(self):
+        """Create RLGym environment with SSL components."""
+        # Create observation builder
+        obs_builder = SSLObsBuilder(
+            n_players=self.config['env']['team_size'] * 2,
+            tick_skip=self.config['env']['tick_skip']
+        )
+        
+        # Create reward function
+        reward_fn = SSLRewardFunction(
+            curriculum_phase=self.curriculum.get_current_phase().name
+        )
+        
+        # Create state setter
+        state_setter = SSLStateSetter(
+            curriculum_phase=self.curriculum.get_current_phase().name
+        )
+        
+        # Create environment
+        env = rlgym.make(
+            use_injector=self.config['env']['use_injector'],
+            self_play=self.config['env']['self_play'],
+            team_size=self.config['env']['team_size'],
+            tick_skip=self.config['env']['tick_skip'],
+            spawn_opponents=self.config['env']['spawn_opponents'],
+            obs_builder=obs_builder,
+            reward_fn=reward_fn,
+            state_setter=state_setter,
+            terminal_conditions=[
+                common_conditions.TimeoutCondition(300),  # 5 minutes
+                common_conditions.GoalScoredCondition()
+            ],
+            action_parser=self.action_parser
+        )
+        
+        return env
+    
+    def _collect_rollouts(self, num_steps: int) -> Dict[str, torch.Tensor]:
+        """Collect rollouts for PPO training."""
+        obs_buffer = []
+        action_buffer = []
+        reward_buffer = []
+        value_buffer = []
+        log_prob_buffer = []
+        done_buffer = []
+        
+        obs = self.env.reset()
+        episode_rewards = []
+        episode_lengths = []
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeElapsedColumn(),
+            console=self.console
+        ) as progress:
+            task = progress.add_task("Collecting rollouts...", total=num_steps)
+            
+            for step in range(num_steps):
+                # Convert observations to tensor
+                obs_tensor = torch.FloatTensor(obs).to(self.device)
+                
+                # Get action from policy
+                with torch.no_grad():
+                    action_outputs = self.policy.sample_actions(obs_tensor)
+                    value = self.critic(obs_tensor)
+                    log_prob = self.policy.log_prob(obs_tensor, action_outputs)
+                
+                # Convert actions to environment format
+                actions = self._convert_actions_to_env(action_outputs)
+                
+                # Step environment
+                next_obs, rewards, dones, infos = self.env.step(actions)
+                
+                # Store experience
+                obs_buffer.append(obs_tensor.cpu())
+                action_buffer.append(action_outputs)
+                reward_buffer.append(torch.FloatTensor(rewards).to(self.device))
+                value_buffer.append(value.cpu())
+                log_prob_buffer.append(log_prob.cpu())
+                done_buffer.append(torch.BoolTensor(dones).to(self.device))
+                
+                obs = next_obs
+                
+                # Track episode statistics
+                if any(dones):
+                    episode_rewards.extend([sum(r) for r in rewards if r])
+                    episode_lengths.extend([len(r) for r in rewards if r])
+                
+                progress.update(task, advance=1)
+        
+        # Convert buffers to tensors
+        rollouts = {
+            'observations': torch.cat(obs_buffer),
+            'actions': action_buffer,
+            'rewards': torch.cat(reward_buffer),
+            'values': torch.cat(value_buffer),
+            'log_probs': torch.cat(log_prob_buffer),
+            'dones': torch.cat(done_buffer),
+            'episode_rewards': episode_rewards,
+            'episode_lengths': episode_lengths
+        }
+        
+        return rollouts
+    
+    def _convert_actions_to_env(self, action_outputs: Dict[str, torch.Tensor]) -> List[np.ndarray]:
+        """Convert policy actions to environment format."""
+        continuous_actions = action_outputs['continuous_actions'].cpu().numpy()
+        discrete_actions = action_outputs['discrete_actions'].cpu().numpy()
+        
+        # Combine continuous and discrete actions
+        actions = []
+        for i in range(continuous_actions.shape[0]):
+            action = np.concatenate([
+                continuous_actions[i],  # throttle, steer, pitch, yaw, roll
+                discrete_actions[i]     # jump, boost, handbrake
+            ])
+            actions.append(action)
+        
+        return actions
+    
+    def _compute_advantages(self, rollouts: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Compute advantages and returns using GAE."""
+        rewards = rollouts['rewards']
+        values = rollouts['values']
+        dones = rollouts['dones']
+        
+        gamma = self.config['ppo']['gamma']
+        gae_lambda = self.config['ppo']['gae_lambda']
+        
+        advantages = torch.zeros_like(rewards)
+        returns = torch.zeros_like(rewards)
+        
+        # Compute advantages using GAE
+        last_advantage = 0
+        for t in reversed(range(len(rewards))):
+            if t == len(rewards) - 1:
+                next_value = 0
+            else:
+                next_value = values[t + 1]
+            
+            delta = rewards[t] + gamma * next_value * (1 - dones[t]) - values[t]
+            advantages[t] = delta + gamma * gae_lambda * (1 - dones[t]) * last_advantage
+            last_advantage = advantages[t]
+        
+        # Compute returns
+        returns = advantages + values
+        
+        return advantages, returns
+    
+    def _update_policy(self, rollouts: Dict[str, torch.Tensor]) -> Dict[str, float]:
+        """Update policy using PPO."""
+        advantages, returns = self._compute_advantages(rollouts)
+        
+        # Normalize advantages
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        
+        # Prepare data
+        obs = rollouts['observations'].to(self.device)
+        actions = rollouts['actions']
+        old_log_probs = rollouts['log_probs'].to(self.device)
+        advantages = advantages.to(self.device)
+        returns = returns.to(self.device)
+        
+        # PPO update
+        n_epochs = self.config['ppo']['n_epochs']
+        mini_batch_size = self.config['ppo']['steps_per_update'] // self.config['ppo']['mini_batches']
+        
+        policy_losses = []
+        value_losses = []
+        entropy_losses = []
+        
+        for epoch in range(n_epochs):
+            # Create mini-batches
+            indices = torch.randperm(len(obs))
+            
+            for start_idx in range(0, len(obs), mini_batch_size):
+                end_idx = min(start_idx + mini_batch_size, len(obs))
+                batch_indices = indices[start_idx:end_idx]
+                
+                batch_obs = obs[batch_indices]
+                batch_actions = {k: v[batch_indices] for k, v in actions.items()}
+                batch_old_log_probs = old_log_probs[batch_indices]
+                batch_advantages = advantages[batch_indices]
+                batch_returns = returns[batch_indices]
+                
+                # Policy update
+                new_log_probs = self.policy.log_prob(batch_obs, batch_actions)
+                entropy = self.policy.entropy(batch_obs)
+                
+                ratio = torch.exp(new_log_probs - batch_old_log_probs)
+                surr1 = ratio * batch_advantages
+                surr2 = torch.clamp(ratio, 1 - self.config['ppo']['clip_ratio'], 
+                                  1 + self.config['ppo']['clip_ratio']) * batch_advantages
+                policy_loss = -torch.min(surr1, surr2).mean()
+                
+                # Value update
+                values = self.critic(batch_obs).squeeze()
+                value_loss = nn.MSELoss()(values, batch_returns)
+                
+                # Total loss
+                entropy_loss = -entropy.mean()
+                total_loss = (policy_loss + 
+                            self.config['ppo']['value_loss_coef'] * value_loss +
+                            self.config['ppo']['entropy_coef'] * entropy_loss)
+                
+                # Update policy
+                self.policy_optimizer.zero_grad()
+                self.critic_optimizer.zero_grad()
+                total_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 
+                                             self.config['ppo']['max_grad_norm'])
+                torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 
+                                             self.config['ppo']['max_grad_norm'])
+                self.policy_optimizer.step()
+                self.critic_optimizer.step()
+                
+                policy_losses.append(policy_loss.item())
+                value_losses.append(value_loss.item())
+                entropy_losses.append(entropy_loss.item())
+        
+        return {
+            'policy_loss': np.mean(policy_losses),
+            'value_loss': np.mean(value_losses),
+            'entropy_loss': np.mean(entropy_losses)
+        }
+    
+    def _evaluate(self, num_episodes: int = 20) -> Dict[str, float]:
+        """Evaluate current policy."""
+        eval_rewards = []
+        eval_lengths = []
+        
+        obs = self.env.reset()
+        
+        for episode in range(num_episodes):
+            episode_reward = 0
+            episode_length = 0
+            done = False
+            
+            while not done:
+                obs_tensor = torch.FloatTensor(obs).to(self.device)
+                
+                with torch.no_grad():
+                    action_outputs = self.policy.sample_actions(obs_tensor)
+                
+                actions = self._convert_actions_to_env(action_outputs)
+                obs, rewards, dones, infos = self.env.step(actions)
+                
+                episode_reward += sum(rewards)
+                episode_length += 1
+                done = any(dones)
+            
+            eval_rewards.append(episode_reward)
+            eval_lengths.append(episode_length)
+        
+        return {
+            'eval_reward': np.mean(eval_rewards),
+            'eval_length': np.mean(eval_lengths),
+            'eval_reward_std': np.std(eval_rewards)
+        }
+    
+    def _save_checkpoint(self, is_best: bool = False):
+        """Save model checkpoint."""
+        checkpoint = {
+            'training_steps': self.training_steps,
+            'episode_count': self.episode_count,
+            'policy_state_dict': self.policy.state_dict(),
+            'critic_state_dict': self.critic.state_dict(),
+            'policy_optimizer_state_dict': self.policy_optimizer.state_dict(),
+            'critic_optimizer_state_dict': self.critic_optimizer.state_dict(),
+            'curriculum_phase': self.curriculum.get_current_phase().name,
+            'best_eval_score': self.best_eval_score
+        }
+        
+        # Save regular checkpoint
+        checkpoint_path = self.checkpoint_dir / f'checkpoint_{self.training_steps}.pt'
+        torch.save(checkpoint, checkpoint_path)
+        
+        # Save best checkpoint
+        if is_best:
+            best_path = self.checkpoint_dir / 'best.pt'
+            torch.save(checkpoint, best_path)
+            self.console.print(f"[green]New best model saved![/green]")
+    
+    def _load_checkpoint(self, checkpoint_path: str):
+        """Load model checkpoint."""
+        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        
+        self.training_steps = checkpoint['training_steps']
+        self.episode_count = checkpoint['episode_count']
+        self.policy.load_state_dict(checkpoint['policy_state_dict'])
+        self.critic.load_state_dict(checkpoint['critic_state_dict'])
+        self.policy_optimizer.load_state_dict(checkpoint['policy_optimizer_state_dict'])
+        self.critic_optimizer.load_state_dict(checkpoint['critic_optimizer_state_dict'])
+        self.best_eval_score = checkpoint['best_eval_score']
+        
+        # Load curriculum state
+        if 'curriculum_phase' in checkpoint:
+            self.curriculum.current_phase = checkpoint['curriculum_phase']
+        
+        self.console.print(f"[green]Loaded checkpoint from {checkpoint_path}[/green]")
+    
+    def _log_metrics(self, metrics: Dict[str, float], step: int):
+        """Log metrics to tensorboard."""
+        for key, value in metrics.items():
+            self.writer.add_scalar(key, value, step)
+    
+    def _display_progress(self, metrics: Dict[str, float]):
+        """Display training progress."""
+        table = Table(title="SSL Bot Training Progress")
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", style="magenta")
+        
+        for key, value in metrics.items():
+            table.add_row(key, f"{value:.4f}")
+        
+        self.console.print(table)
+    
+    def train(self, max_steps: int = 1000000, resume_from: Optional[str] = None):
+        """Main training loop."""
+        if resume_from:
+            self._load_checkpoint(resume_from)
+        
+        self.console.print(f"[green]Starting SSL Bot training for {max_steps} steps[/green]")
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeElapsedColumn(),
+            console=self.console
+        ) as progress:
+            task = progress.add_task("Training...", total=max_steps)
+            
+            while self.training_steps < max_steps:
+                # Collect rollouts
+                rollouts = self._collect_rollouts(self.config['ppo']['steps_per_update'])
+                
+                # Update policy
+                update_metrics = self._update_policy(rollouts)
+                
+                # Update training steps
+                self.training_steps += self.config['ppo']['steps_per_update']
+                self.episode_count += len(rollouts['episode_rewards'])
+                
+                # Log metrics
+                metrics = {
+                    'training/episode_reward': np.mean(rollouts['episode_rewards']),
+                    'training/episode_length': np.mean(rollouts['episode_lengths']),
+                    'training/policy_loss': update_metrics['policy_loss'],
+                    'training/value_loss': update_metrics['value_loss'],
+                    'training/entropy_loss': update_metrics['entropy_loss'],
+                    'training/training_steps': self.training_steps,
+                    'training/episode_count': self.episode_count
+                }
+                
+                self._log_metrics(metrics, self.training_steps)
+                
+                # Evaluation
+                if self.training_steps % self.config['training']['eval_frequency'] == 0:
+                    eval_metrics = self._evaluate(self.config['training']['eval_episodes'])
+                    
+                    eval_log_metrics = {
+                        'eval/eval_reward': eval_metrics['eval_reward'],
+                        'eval/eval_length': eval_metrics['eval_length'],
+                        'eval/eval_reward_std': eval_metrics['eval_reward_std']
+                    }
+                    
+                    self._log_metrics(eval_log_metrics, self.training_steps)
+                    
+                    # Check for best model
+                    if eval_metrics['eval_reward'] > self.best_eval_score:
+                        self.best_eval_score = eval_metrics['eval_reward']
+                        self._save_checkpoint(is_best=True)
+                    
+                    # Display progress
+                    self._display_progress({**metrics, **eval_log_metrics})
+                
+                # Save checkpoint
+                if self.training_steps % self.config['training']['save_frequency'] == 0:
+                    self._save_checkpoint()
+                
+                # Curriculum progression
+                if (self.config['curriculum']['auto_progress'] and 
+                    self.training_steps % self.config['curriculum']['progress_check_frequency'] == 0):
+                    
+                    # Get evaluation metrics for curriculum
+                    eval_metrics = self._evaluate(self.config['training']['eval_episodes'])
+                    
+                    if self.curriculum.should_progress(eval_metrics):
+                        self.curriculum.progress_to_next_phase()
+                        
+                        # Update environment components
+                        self.env.reward_fn.set_curriculum_phase(self.curriculum.get_current_phase().name)
+                        self.env.state_setter.set_curriculum_phase(self.curriculum.get_current_phase().name)
+                        
+                        self.console.print(f"[green]Progressed to {self.curriculum.get_current_phase().name} phase[/green]")
+                
+                progress.update(task, completed=self.training_steps)
+        
+        self.console.print("[green]Training completed![/green]")
+        self.writer.close()
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Train SSL Bot with PPO and Curriculum Learning')
+    parser.add_argument('--cfg', type=str, default='configs/ppo_ssl.yaml',
+                       help='Path to training configuration file')
+    parser.add_argument('--curr', type=str, default='configs/curriculum.yaml',
+                       help='Path to curriculum configuration file')
+    parser.add_argument('--resume', type=str, default=None,
+                       help='Path to checkpoint to resume from')
+    parser.add_argument('--max-steps', type=int, default=1000000,
+                       help='Maximum training steps')
+    
+    args = parser.parse_args()
+    
+    # Create trainer
+    trainer = PPOTrainer(args.cfg, args.curr)
+    
+    # Start training
+    trainer.train(max_steps=args.max_steps, resume_from=args.resume)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,250 @@
+name: SSL Bot CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  lint-and-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install black==24.1.1 ruff==0.1.6 mypy==1.8.0
+    
+    - name: Run Black formatter
+      run: black --check --line-length 100 src/
+    
+    - name: Run Ruff linter
+      run: ruff check --select E,F,I,UP,B,W,N --ignore E203,E266,E501 src/
+    
+    - name: Run MyPy type checker
+      run: mypy --strict src/
+
+  smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r env/requirements.txt
+    
+    - name: Test imports
+      run: |
+        python -c "import torch; print(f'PyTorch: {torch.__version__}')"
+        python -c "import rlgym; print('RLGym: OK')"
+        python -c "import rlbot; print('RLBot: OK')"
+    
+    - name: Test policy creation
+      run: |
+        python -c "
+        from src.training.policy import create_ssl_policy, create_ssl_critic
+        config = {'obs_dim': 107, 'hidden_sizes': [512, 512, 256], 'use_attention': False}
+        policy = create_ssl_policy(config)
+        critic = create_ssl_critic(config)
+        print(f'Policy parameters: {sum(p.numel() for p in policy.parameters()):,}')
+        print(f'Critic parameters: {sum(p.numel() for p in critic.parameters()):,}')
+        "
+    
+    - name: Test observation builder
+      run: |
+        python -c "
+        from src.training.observers import SSLObsBuilder
+        import numpy as np
+        obs_builder = SSLObsBuilder(n_players=6)
+        obs_space = obs_builder.get_obs_space()
+        print(f'Observation space: {obs_space}')
+        print('Observation builder test passed')
+        "
+    
+    - name: Test reward function
+      run: |
+        python -c "
+        from src.training.rewards import SSLRewardFunction
+        reward_fn = SSLRewardFunction(curriculum_phase='bronze')
+        print('Reward function test passed')
+        "
+    
+    - name: Test state setter
+      run: |
+        python -c "
+        from src.training.state_setters import SSLStateSetter
+        state_setter = SSLStateSetter(curriculum_phase='bronze')
+        print('State setter test passed')
+        "
+    
+    - name: Test curriculum manager
+      run: |
+        python -c "
+        from src.training.curriculum import CurriculumManager
+        import tempfile
+        import os
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            f.write('phases:\n  bronze:\n    description: test\n    reward_weights: {}\n    scenario_weights: {}\n    opponent_mix: {}\n    progression_gates: {}\n    min_training_steps: 1000\n    max_training_steps: 5000\n    eval_metrics: {}')
+            temp_path = f.name
+        try:
+            curriculum = CurriculumManager(temp_path)
+            print(f'Current phase: {curriculum.get_current_phase().name}')
+            print('Curriculum manager test passed')
+        finally:
+            os.unlink(temp_path)
+        "
+    
+    - name: Test export functionality
+      run: |
+        python -c "
+        from src.inference.export import TorchScriptExporter
+        from src.training.policy import create_ssl_policy
+        import torch
+        import tempfile
+        import os
+        
+        # Create dummy policy
+        config = {'obs_dim': 107, 'hidden_sizes': [256, 256], 'use_attention': False}
+        policy = create_ssl_policy(config)
+        
+        # Create dummy checkpoint
+        checkpoint = {
+            'policy_state_dict': policy.state_dict(),
+            'training_steps': 1000,
+            'episode_count': 100
+        }
+        
+        with tempfile.NamedTemporaryFile(suffix='.pt', delete=False) as f:
+            torch.save(checkpoint, f.name)
+            checkpoint_path = f.name
+        
+        try:
+            exporter = TorchScriptExporter()
+            with tempfile.NamedTemporaryFile(suffix='.ts', delete=False) as f:
+                output_path = f.name
+            
+            try:
+                exporter.export_policy(checkpoint_path, output_path, config=config)
+                print('Export functionality test passed')
+            finally:
+                if os.path.exists(output_path):
+                    os.unlink(output_path)
+        finally:
+            os.unlink(checkpoint_path)
+        "
+    
+    - name: Test RLBot integration
+      run: |
+        python -c "
+        from src.rlbot_integration.observation_adapter import RLBotObservationAdapter
+        from src.rlbot_integration.controller_adapter import RLBotControllerAdapter
+        import numpy as np
+        
+        obs_adapter = RLBotObservationAdapter()
+        controller_adapter = RLBotControllerAdapter()
+        
+        # Test controller adapter
+        continuous_actions = np.array([0.5, -0.3, 0.8, 0.2, -0.1])
+        discrete_actions = np.array([0.7, 0.3, 0.1])
+        controller = controller_adapter.actions_to_controller(continuous_actions, discrete_actions)
+        
+        print(f'Controller throttle: {controller.throttle}')
+        print(f'Controller steer: {controller.steer}')
+        print('RLBot integration test passed')
+        "
+
+  build-and-test:
+    runs-on: ubuntu-latest
+    needs: [lint-and-typecheck, smoke-test]
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r env/requirements.txt
+    
+    - name: Create dummy model
+      run: |
+        python -c "
+        from src.training.policy import create_ssl_policy
+        import torch
+        import os
+        
+        # Create dummy policy
+        config = {'obs_dim': 107, 'hidden_sizes': [256, 256], 'use_attention': False}
+        policy = create_ssl_policy(config)
+        
+        # Create dummy checkpoint
+        checkpoint = {
+            'policy_state_dict': policy.state_dict(),
+            'training_steps': 1000,
+            'episode_count': 100
+        }
+        
+        os.makedirs('models/checkpoints', exist_ok=True)
+        torch.save(checkpoint, 'models/checkpoints/best.pt')
+        print('Dummy model created')
+        "
+    
+    - name: Test export pipeline
+      run: |
+        python -m src.inference.export --ckpt models/checkpoints/best.pt --out models/exported/ssl_policy.ts --test
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ssl-policy-model
+        path: models/exported/ssl_policy.ts
+        retention-days: 7
+
+  windows-test:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r env/requirements.txt
+    
+    - name: Test Windows-specific functionality
+      run: |
+        python -c "
+        import sys
+        print(f'Python version: {sys.version}')
+        print(f'Platform: {sys.platform}')
+        
+        # Test imports
+        import torch
+        print(f'PyTorch: {torch.__version__}')
+        
+        # Test policy creation
+        from src.training.policy import create_ssl_policy
+        config = {'obs_dim': 107, 'hidden_sizes': [256, 256], 'use_attention': False}
+        policy = create_ssl_policy(config)
+        print('Windows test passed')
+        "

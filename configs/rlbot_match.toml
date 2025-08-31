@@ -1,0 +1,82 @@
+# RLBot Match Configuration for SSL Bot Testing
+# Configuration for local matches and evaluation
+
+[match]
+# Match settings
+name = "SSL Bot vs Nexto"
+map = "DFH Stadium"
+game_mode = "Soccer"
+team_size = 1
+max_score = 3
+overtime = true
+series_length = 1
+
+# Game settings
+spawn_opponents = true
+enable_rendering = true
+enable_state_setting = true
+auto_save_replay = true
+
+# Performance settings
+tick_rate = 120
+step_begin = 0.016666
+step_end = 0.016666
+
+[blue_team]
+# SSL Bot (our trained policy)
+[[blue_team.bots]]
+name = "SSLBot"
+type = "python"
+path = "src/rlbot_integration/bot.py"
+config = "Necto.bot.toml"
+
+[orange_team]
+# Nexto (for comparison)
+[[orange_team.bots]]
+name = "Nexto"
+type = "python"
+path = "rlbot_support/Nexto/bot.py"
+config = "rlbot_support/Nexto/bot.cfg"
+
+# Alternative: Necto
+# [[orange_team.bots]]
+# name = "Necto"
+# type = "python"
+# path = "rlbot_support/Necto/bot.py"
+# config = "rlbot_support/Necto/bot.cfg"
+
+[spectator]
+# Spectator settings
+team = 0
+player_index = 0
+camera_mode = "ball"
+camera_distance = 400
+camera_height = 200
+camera_pitch = -15
+camera_yaw = 0
+camera_fov = 90
+
+[recording]
+# Recording settings
+auto_start_recording = false
+recording_name = "ssl_bot_match"
+recording_notes = "SSL Bot evaluation match"
+
+[mutators]
+# Game mutators
+match_length = "5 Minutes"
+max_score = "Unlimited"
+overtime = "Unlimited"
+series_length = "Unlimited"
+game_speed = "Default"
+ball_max_speed = "Default"
+ball_type = "Default"
+ball_weight = "Default"
+ball_size = "Default"
+ball_bounciness = "Default"
+boost_amount = "Default"
+rumble = "None"
+boost_strength = "1x"
+gravity = "Default"
+demolish = "Default"
+respawn_time = "3 Seconds"

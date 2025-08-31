@@ -1,0 +1,58 @@
+# SSL Bot Configuration for RLBot
+# Configuration file for the SSL Bot trained with curriculum learning
+
+[Bot]
+name = "SSL Bot"
+developer = "SSL Bot Team"
+description = "SSL-level Rocket League bot trained with curriculum learning from Bronze to SSL"
+fun_fact = "Trained with PPO and curriculum learning to master SSL-level mechanics"
+github = "https://github.com/your-username/ssl-bot"
+language = "Python"
+
+[Bot Loadout]
+# Car appearance
+team_color_id = 60
+custom_color_id = 0
+car_id = 23  # Octane
+decal_id = 0
+wheels_id = 1565
+boost_id = 35
+antenna_id = 0
+hat_id = 0
+paint_finish_id = 0
+custom_finish_id = 0
+engine_audio_id = 0
+trails_id = 3220
+goal_explosion_id = 3018
+
+[Bot Info]
+# Bot capabilities
+supports_early_start = true
+supports_quick_chat = false
+supports_workshop_maps = true
+supports_legacy_maps = true
+
+# Performance settings
+tick_rate = 120
+step_begin = 0.016666
+step_end = 0.016666
+
+[Bot Files]
+# Python files
+bot_file = "src/rlbot_integration/bot.py"
+requirements_file = "env/requirements.txt"
+
+# Model files
+model_file = "models/exported/ssl_policy.ts"
+
+[Bot Settings]
+# Training phase (can be overridden)
+curriculum_phase = "ssl"
+
+# Performance settings
+use_gpu = false
+max_inference_time = 0.01  # 10ms max inference time
+
+# Debug settings
+debug_mode = false
+log_level = "INFO"

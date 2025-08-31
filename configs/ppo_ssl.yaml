@@ -1,0 +1,171 @@
+# PPO Configuration for SSL Bot Training
+# Optimized for self-play stability and SSL-level mechanics
+
+# Environment Configuration
+env:
+  name: "SSLBot"
+  team_size: 3
+  tick_skip: 8
+  spawn_opponents: true
+  self_play: true
+  use_injector: true
+  
+# PPO Hyperparameters
+ppo:
+  # Training steps
+  steps_per_update: 32768
+  mini_batches: 16
+  n_epochs: 4
+  
+  # Learning rates
+  actor_lr: 3e-4
+  critic_lr: 3e-4
+  lr_decay: "cosine"
+  lr_decay_steps: 1000000
+  lr_min: 1e-6
+  
+  # PPO specific
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_ratio: 0.2
+  value_loss_coef: 0.5
+  entropy_coef: 0.01
+  entropy_coef_decay: 0.999
+  entropy_coef_min: 0.001
+  
+  # Gradient clipping
+  max_grad_norm: 0.5
+  
+  # Value function
+  value_clip: true
+  value_loss_clip: 0.2
+
+# Policy Network Configuration
+policy:
+  type: "mlp_attention"
+  hidden_sizes: [1024, 1024, 512]
+  activation: "silu"
+  use_layer_norm: true
+  dropout: 0.1
+  
+  # Attention configuration
+  attention:
+    num_heads: 8
+    head_dim: 64
+    use_attention: true
+    
+  # Output heads
+  continuous_actions: 5  # throttle, steer, pitch, yaw, roll
+  discrete_actions: 3    # jump, boost, handbrake
+
+# Training Configuration
+training:
+  # Checkpointing
+  save_frequency: 10000
+  save_best: true
+  max_checkpoints: 10
+  
+  # Evaluation
+  eval_frequency: 5000
+  eval_episodes: 20
+  eval_opponents: ["self", "scripted_basic", "scripted_advanced"]
+  
+  # Logging
+  log_frequency: 100
+  tensorboard: true
+  wandb: false
+  
+  # Early stopping
+  early_stopping: false
+  patience: 100000
+
+# Self-play Configuration
+self_play:
+  # Opponent sampling
+  opponent_pool_size: 10
+  opponent_update_frequency: 5000
+  opponent_skill_range: [0.8, 1.2]
+  
+  # Matchmaking
+  skill_based_matchmaking: true
+  skill_update_rate: 0.01
+  
+  # Diversity
+  diversity_bonus: 0.1
+  exploration_bonus: 0.05
+
+# Observation Configuration
+observation:
+  type: "ssl_obs"
+  normalize: true
+  clip_obs: 10.0
+  
+# Reward Configuration
+reward:
+  type: "ssl_reward"
+  normalize: true
+  clip_reward: 10.0
+  
+# State Setter Configuration
+state_setter:
+  type: "ssl_state_setter"
+  curriculum_based: true
+
+# Curriculum Configuration
+curriculum:
+  config_path: "configs/curriculum.yaml"
+  auto_progress: true
+  progress_check_frequency: 10000
+
+# Device Configuration
+device:
+  auto_detect: true
+  cuda: true
+  mixed_precision: true
+
+# Optimization
+optimization:
+  # Data loading
+  num_workers: 4
+  prefetch_factor: 2
+  
+  # Memory
+  buffer_size: 1000000
+  batch_size: 1024
+  
+  # Performance
+  compile_model: true
+  jit_compile: false
+
+# Monitoring
+monitoring:
+  # Metrics to track
+  metrics:
+    - "episode_reward"
+    - "episode_length"
+    - "win_rate"
+    - "goal_rate"
+    - "touch_rate"
+    - "aerial_success"
+    - "wall_read_success"
+    - "boost_efficiency"
+    - "recovery_time"
+  
+  # Alerts
+  alerts:
+    - metric: "win_rate"
+      threshold: 0.95
+      message: "High win rate achieved"
+    - metric: "episode_reward"
+      threshold: 100
+      message: "High reward achieved"
+
+# Experiment Configuration
+experiment:
+  name: "ssl_bot_training"
+  tags: ["ssl", "rocket_league", "ppo", "self_play"]
+  notes: "SSL bot training with curriculum learning"
+  
+  # Reproducibility
+  seed: 42
+  deterministic: true
