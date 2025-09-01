@@ -1,20 +1,52 @@
 phases:
-  - name: bronze
-    reward_weights: {ball_to_goal: 1.0, touch_quality: 0.2, recovery: 0.2, boost_economy: 0.1}
-    scenarios: {kickoff: 0.20, mid: 0.70, aerial: 0.05, wall: 0.05}
-    promote_if: {min_games: 200, kpis: {on_target_pct: 0.30, recoveries_per_min: 15}}
+  bronze:
+    description: "Entry phase focusing on basic skills"
+    reward_weights:
+      ball_to_goal: 1.0
+      touch_quality: 0.2
+      recovery: 0.2
+      boost_economy: 0.1
+    scenario_weights:
+      kickoff: 0.20
+      mid: 0.70
+      aerial: 0.05
+      wall: 0.05
+    opponent_mix:
+      self_play: 0.7
+      scripted: 0.3
+    progression_gates:
+      min_games: 200
+      kpis:
+        on_target_pct: 0.30
+        recoveries_per_min: 15
+    min_training_steps: 10000
+    max_training_steps: 20000
+    eval_metrics:
+      win_rate: 0.5
 
-  - name: gold
-    reward_weights: {ball_to_goal: 1.0, touch_quality: 0.4, recovery: 0.2, boost_economy: 0.2, shadowing: 0.2}
-    scenarios: {kickoff: 0.15, mid: 0.55, aerial: 0.15, wall: 0.15}
-    promote_if: {min_games: 300, kpis: {on_target_pct: 0.45, save_rate: 0.15}}
+  gold:
+    description: "Intermediate phase introducing positioning and aerials"
+    reward_weights:
+      ball_to_goal: 1.0
+      touch_quality: 0.4
+      recovery: 0.2
+      boost_economy: 0.2
+      shadowing: 0.2
+    scenario_weights:
+      kickoff: 0.15
+      mid: 0.55
+      aerial: 0.15
+      wall: 0.15
+    opponent_mix:
+      self_play: 0.6
+      scripted: 0.4
+    progression_gates:
+      min_games: 300
+      kpis:
+        on_target_pct: 0.45
+        save_rate: 0.15
+    min_training_steps: 20000
+    max_training_steps: 40000
+    eval_metrics:
+      win_rate: 0.6
 
-  - name: champ
-    reward_weights: {ball_to_goal: 0.8, touch_quality: 0.6, aerial_intercept: 0.5, backboard_read: 0.4, clear_quality: 0.3, boost_economy: 0.2}
-    scenarios: {kickoff: 0.10, mid: 0.40, aerial: 0.30, wall: 0.20}
-    promote_if: {min_games: 400, kpis: {aerial_intercept_rate: 0.25, backboard_success: 0.20}}
-
-  - name: ssl
-    reward_weights: {aerial_intercept: 0.8, backboard_read: 0.6, double_tap: 0.6, flip_reset: 0.4, clear_quality: 0.4, shadowing: 0.3, ball_to_goal: 0.6}
-    scenarios: {kickoff: 0.08, mid: 0.32, aerial: 0.40, wall: 0.20}
-    promote_if: {min_games: 500, kpis: {aerial_intercept_rate: 0.40, double_tap_success: 0.15}}
