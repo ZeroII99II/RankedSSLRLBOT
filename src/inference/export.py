@@ -44,15 +44,32 @@ def main() -> None:
         example = torch.zeros(1, args.obs_dim, device=device)
         scripted = torch.jit.trace(module, example)
     else:
-        from src.training.policy import build_policy
+        from src.training.policy import create_ssl_policy
 
-        policy = build_policy(args.obs_dim, CONT_DIM, DISC_DIM).to(device)
+        # Create default SSL policy with specified observation and action dimensions
+        ssl_policy = create_ssl_policy({
+            "obs_dim": args.obs_dim,
+            "continuous_actions": CONT_DIM,
+            "discrete_actions": DISC_DIM,
+        }).to(device)
         ckpt = torch.load(args.ckpt, map_location=device)
         state_dict = ckpt.get("model_state_dict") or ckpt.get("state_dict") or ckpt
-        policy.load_state_dict(state_dict, strict=False)
-        policy.eval()
+        ssl_policy.load_state_dict(state_dict, strict=False)
+        ssl_policy.eval()
+
+        class PolicyWrapper(torch.nn.Module):
+            """TorchScript-compatible wrapper for SSLPolicy outputs."""
+
+            def __init__(self, policy: torch.nn.Module) -> None:
+                super().__init__()
+                self.policy = policy
+
+            def forward(self, obs: torch.Tensor):
+                out = self.policy(obs)
+                return out["continuous_actions"], out["discrete_actions"]
+
         example = torch.zeros(1, args.obs_dim, device=device)
-        scripted = torch.jit.trace(policy, example)
+        scripted = torch.jit.trace(PolicyWrapper(ssl_policy), example)
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
