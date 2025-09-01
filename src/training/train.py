@@ -3,6 +3,11 @@ SSL Bot Training Script with PPO and Curriculum Learning.
 Implements vectorized environments using RocketSim for fast training.
 """
 
+import sys, pathlib
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 import argparse
 import os
 import time
