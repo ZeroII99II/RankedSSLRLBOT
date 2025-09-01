@@ -6,18 +6,35 @@ Builds vectorized observations aligned to SSL-level plays including:
 - Advanced positioning and boost management
 """
 
+from __future__ import annotations
+
 import numpy as np
 from typing import Any, Dict, List, Tuple
 from src.utils.gym_compat import gym
+
 Space = gym.Space
 Box = gym.spaces.Box
-from rlgym.utils import ObsBuilder
-from rlgym.utils.common_values import BOOST_LOCATIONS, CEILING_Z, BALL_RADIUS, CAR_MAX_SPEED
-from rlgym.utils.gamestates import GameState, PlayerData
-from rlgym.utils.math import cosine_similarity
+
+# Lightweight compatibility layer instead of depending on full rlgym
+from src.compat.rlgym_v2_compat import ObsBuilder
+from src.compat.rlgym_v2_compat.common_values import (
+    BOOST_LOCATIONS,
+    CEILING_Z,
+    BALL_RADIUS,
+    CAR_MAX_SPEED,
+)
 
 
-class SSLObsBuilder(ObsBuilder):
+def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    """Compute cosine similarity between two vectors."""
+    norm_a = np.linalg.norm(a)
+    norm_b = np.linalg.norm(b)
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return float(np.dot(a, b) / (norm_a * norm_b))
+
+
+class ModernObsBuilder(ObsBuilder):
     """
     SSL-focused observation builder with static shape for consistent training.
     
@@ -438,3 +455,7 @@ class SSLObsBuilder(ObsBuilder):
     def get_obs_space(self) -> Space:
         """Return observation space."""
         return Box(low=-np.inf, high=np.inf, shape=(self.obs_dim,), dtype=np.float32)
+
+# Backwards compatibility
+SSLObsBuilder = ModernObsBuilder
+

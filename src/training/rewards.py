@@ -4,19 +4,36 @@ Supports rank-aware rewards from Bronze to SSL with different emphasis
 on basic mechanics vs advanced aerial/wall plays.
 """
 
+from __future__ import annotations
+
 import numpy as np
 from typing import Dict, List, Optional, Tuple
-from rlgym.utils import RewardFunction
-from rlgym.utils.common_values import (
-    BALL_MAX_SPEED, CAR_MAX_SPEED, CEILING_Z, BALL_RADIUS, 
-    BLUE_GOAL_BACK, BLUE_GOAL_CENTER, ORANGE_GOAL_BACK, ORANGE_GOAL_CENTER,
-    GOAL_HEIGHT, CAR_MAX_ANG_VEL, ORANGE_TEAM
+
+from src.compat.rlgym_v2_compat import RewardFunction
+from src.compat.rlgym_v2_compat.common_values import (
+    BALL_MAX_SPEED,
+    CAR_MAX_SPEED,
+    CEILING_Z,
+    BALL_RADIUS,
+    BLUE_GOAL_BACK,
+    BLUE_GOAL_CENTER,
+    ORANGE_GOAL_BACK,
+    ORANGE_GOAL_CENTER,
+    GOAL_HEIGHT,
+    CAR_MAX_ANG_VEL,
+    ORANGE_TEAM,
 )
-from rlgym.utils.gamestates import GameState, PlayerData
-from rlgym.utils.math import cosine_similarity
 
 
-class SSLRewardFunction(RewardFunction):
+def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    norm_a = np.linalg.norm(a)
+    norm_b = np.linalg.norm(b)
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return float(np.dot(a, b) / (norm_a * norm_b))
+
+
+class ModernRewardSystem(RewardFunction):
     """
     SSL-focused reward function with curriculum-based weighting.
     
@@ -598,3 +615,7 @@ class SSLRewardFunction(RewardFunction):
         self.last_ball_vel = state.ball.linear_velocity.copy()
         self.last_car_positions[player_idx] = player.car_data.position.copy()
         self.last_boost_amounts[player_idx] = player.boost_amount
+
+# Backwards compatibility
+SSLRewardFunction = ModernRewardSystem
+

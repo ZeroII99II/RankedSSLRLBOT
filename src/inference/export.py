@@ -48,38 +48,65 @@ def main() -> None:
     parser.add_argument("--obs_dim", type=int, default=None)
     parser.add_argument("--n_cont", type=int, default=N_CONT)
     parser.add_argument("--n_disc", type=int, default=N_DISC)
+    parser.add_argument("--sb3", action="store_true", help="Load SB3 PPO checkpoint")
     args = parser.parse_args()
 
     obs_dim = args.obs_dim or _infer_obs_dim_from_repo()
     n_cont = args.n_cont
     n_disc = args.n_disc
 
-    # Lazy import to avoid heavy deps on import
-    from src.training.policy import build_policy  # your implementation
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
     print(f"[export] obs_dim={obs_dim}, n_cont={n_cont}, n_disc={n_disc}, device={device}")
 
-    policy = build_policy(obs_dim, n_cont, n_disc).to(device)
-    ckpt = torch.load(args.ckpt, map_location=device)
+    if args.sb3:
+        from stable_baselines3 import PPO
 
-    # Flexible loaders: accept either direct state_dict or nested
-    state_dict = ckpt.get("model_state_dict") or ckpt.get("state_dict") or ckpt
-    policy.load_state_dict(state_dict, strict=False)
-    policy.eval()
+        model = PPO.load(str(args.ckpt), device=device)
+        sb3_policy = model.policy
 
-    # Include normalization constants if your pipeline uses them
-    if hasattr(policy, "set_normalization"):
-        try:
-            policy.set_normalization(ckpt.get("obs_norm"), ckpt.get("act_norm"))
-        except Exception:
-            pass
+        class SB3Wrapper(torch.nn.Module):
+            def __init__(self, policy):
+                super().__init__()
+                self.features_extractor = policy.features_extractor
+                self.mlp_extractor = getattr(policy, "mlp_extractor", None)
+                self.action_net = policy.action_net
 
-    # Script
-    example = torch.zeros(1, obs_dim, device=device)
-    with torch.no_grad():
-        traced = torch.jit.trace(policy, example)
+            def forward(self, x):
+                latent = self.features_extractor(x)
+                if self.mlp_extractor is not None:
+                    latent, _ = self.mlp_extractor(latent)
+                out = self.action_net(latent)
+                cont = torch.tanh(out[:, :n_cont])
+                disc_logits = out[:, n_cont:n_cont + n_disc]
+                return cont, disc_logits
+
+        module = SB3Wrapper(sb3_policy).to(device)
+        example = torch.zeros(1, obs_dim, device=device)
+        with torch.no_grad():
+            traced = torch.jit.trace(module, example)
+    else:
+        # Lazy import to avoid heavy deps on import
+        from src.training.policy import build_policy  # your implementation
+
+        policy = build_policy(obs_dim, n_cont, n_disc).to(device)
+        ckpt = torch.load(args.ckpt, map_location=device)
+
+        # Flexible loaders: accept either direct state_dict or nested
+        state_dict = ckpt.get("model_state_dict") or ckpt.get("state_dict") or ckpt
+        policy.load_state_dict(state_dict, strict=False)
+        policy.eval()
+
+        # Include normalization constants if your pipeline uses them
+        if hasattr(policy, "set_normalization"):
+            try:
+                policy.set_normalization(ckpt.get("obs_norm"), ckpt.get("act_norm"))
+            except Exception:
+                pass
+
+        example = torch.zeros(1, obs_dim, device=device)
+        with torch.no_grad():
+            traced = torch.jit.trace(policy, example)
+
     args.out.parent.mkdir(parents=True, exist_ok=True)
     traced.save(str(args.out))
     print(f"[export] Saved TorchScript → {args.out}")
