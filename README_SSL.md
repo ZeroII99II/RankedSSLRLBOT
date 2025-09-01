@@ -29,6 +29,12 @@ scripts/run_rlbot_local.bat  # or .sh on Linux/Mac
 
 > Set `SSL_POLICY_PATH` env var to point RLBot to a different model if needed.
 
+### 5) Run Tests
+
+```bash
+pytest
+```
+
 ## Training (RLGym 2.0 + SB3)
 
 ```bash
