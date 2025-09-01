@@ -1,28 +1,28 @@
-"""Stable-Baselines3 PPO helper for v2 trainer."""
 from __future__ import annotations
+import torch, torch.nn as nn
+from src.utils.gym_compat import gym
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
 
-from typing import Optional
+class MLPExtractor(BaseFeaturesExtractor):
+    def __init__(self, observation_space: gym.spaces.Space, features_dim: int = 512):
+        super().__init__(observation_space, features_dim)
+        in_dim = observation_space.shape[0]
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, 1024), nn.LayerNorm(1024), nn.SiLU(),
+            nn.Linear(1024, 1024),   nn.LayerNorm(1024), nn.SiLU(),
+            nn.Linear(1024, 512),    nn.LayerNorm(512),  nn.SiLU(),
+        )
+        self._features_dim = 512
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
 
-from stable_baselines3 import PPO
+def make_vec(env_fns):
+    return VecMonitor(SubprocVecEnv(env_fns, start_method="spawn"))
 
-
-def make_ppo(env, tensorboard_log: Optional[str] = None) -> PPO:
-    """Build a PPO agent with the architecture used for training.
-
-    The network uses an MLP extractor with layers 1024 → 1024 → 512 for both the
-    policy and value networks.  Action space is expected to be a Dict with
-    continuous (5) and discrete (3) components.
-    """
-
-    policy_kwargs = dict(
-        net_arch=[dict(pi=[1024, 1024, 512], vf=[1024, 1024, 512])]
+def make_policy_kwargs():
+    return dict(
+        features_extractor_class=MLPExtractor,
+        net_arch=[dict(pi=[256], vf=[256])],
+        activation_fn=nn.SiLU,
     )
-
-    model = PPO(
-        "MlpPolicy",
-        env,
-        verbose=1,
-        tensorboard_log=tensorboard_log,
-        policy_kwargs=policy_kwargs,
-    )
-    return model

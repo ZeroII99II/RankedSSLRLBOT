@@ -149,7 +149,7 @@ class PPOTrainer:
         log_prob_buffer = []
         done_buffer = []
         
-        obs = reset_env(self.env)
+        obs, _info = reset_env(self.env)
         episode_rewards = []
         episode_lengths = []
         
@@ -337,7 +337,7 @@ class PPOTrainer:
         eval_rewards = []
         eval_lengths = []
         
-        obs = reset_env(self.env)
+        obs, _info = reset_env(self.env)
         
         for episode in range(num_episodes):
             episode_reward = 0
@@ -554,12 +554,12 @@ def main():
         trainer.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     
     if args.dry_run:
-        obs = reset_env(trainer.env)
+        obs, _info = reset_env(trainer.env)
         for _ in range(args.dry_run):
             action = trainer.env.action_space.sample()
             obs, _, done, _ = step_env(trainer.env, action)
             if done:
-                obs = reset_env(trainer.env)
+                obs, _info = reset_env(trainer.env)
         return
 
     # Start training

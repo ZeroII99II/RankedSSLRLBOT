@@ -7,14 +7,12 @@ torchaudio==2.2.2
 gymnasium==0.29.1
 shimmy==1.3.0
 rlgym==2.0.0
-# rlgym-ppo==1.3.0  # TODO: add when available for PyPI
-# rocketsim==4.5.0  # TODO: add when wheel available
-# Pin RLBot v5 when tagged; otherwise use develop temporarily:
-# rlbot==5.0.0
 git+https://github.com/RLBot/RLBot.git@master#subdirectory=src/main/python
 protobuf==3.20.3
 omegaconf==2.3.0
 pydantic==2.7.4
 tqdm==4.66.4
 rich==13.7.1
-tensorboard==2.20.0
+stable-baselines3==2.3.2
+tensorboard==2.17.1
+rocketsim==4.5.0

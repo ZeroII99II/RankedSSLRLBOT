@@ -29,6 +29,13 @@ scripts/run_rlbot_local.bat  # or .sh on Linux/Mac
 
 > Set `SSL_POLICY_PATH` env var to point RLBot to a different model if needed.
 
+## Training (RLGym 2.0 + SB3)
+
+```bash
+python src/training/train_v2.py --envs 8 --steps 1000000
+python src/inference/export.py --sb3 --ckpt models/checkpoints/best_sb3.zip --out models/exported/ssl_policy.ts --obs_dim 107
+```
+
 ## 📋 Table of Contents
 
 - [Overview](#overview)
