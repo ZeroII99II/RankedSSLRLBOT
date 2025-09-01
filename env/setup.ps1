@@ -12,4 +12,4 @@ if ($gpu) {
 .\.venv\Scripts\python -m pip install -r .\env\requirements.txt
 
 # Quick import check
-.\.venv\Scripts\python -c "import torch, rlgym, rlbot; print('OK:', torch.__version__)"
+.\.venv\Scripts\python -c "import torch, gymnasium, rlbot; print('OK', torch.__version__, gymnasium.__version__, getattr(rlbot,'__version__','dev'))"

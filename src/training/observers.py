@@ -8,8 +8,9 @@ Builds vectorized observations aligned to SSL-level plays including:
 
 import numpy as np
 from typing import Any, Dict, List, Tuple
-from gym import Space
-from gym.spaces import Box
+from src.utils.gym_compat import gym
+Space = gym.Space
+Box = gym.spaces.Box
 from rlgym.utils import ObsBuilder
 from rlgym.utils.common_values import BOOST_LOCATIONS, CEILING_Z, BALL_RADIUS, CAR_MAX_SPEED
 from rlgym.utils.gamestates import GameState, PlayerData

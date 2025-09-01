@@ -29,6 +29,7 @@ from .rewards import SSLRewardFunction
 from .state_setters import SSLStateSetter
 from .curriculum import CurriculumManager
 from .policy import SSLPolicy, SSLCritic, create_ssl_policy, create_ssl_critic
+from src.utils.gym_compat import gym, reset_env, step_env
 
 
 class PPOTrainer:
@@ -143,7 +144,7 @@ class PPOTrainer:
         log_prob_buffer = []
         done_buffer = []
         
-        obs = self.env.reset()
+        obs = reset_env(self.env)
         episode_rewards = []
         episode_lengths = []
         
@@ -171,7 +172,7 @@ class PPOTrainer:
                 actions = self._convert_actions_to_env(action_outputs)
                 
                 # Step environment
-                next_obs, rewards, dones, infos = self.env.step(actions)
+                next_obs, rewards, dones, infos = step_env(self.env, actions)
                 
                 # Store experience
                 obs_buffer.append(obs_tensor.cpu())
@@ -331,7 +332,7 @@ class PPOTrainer:
         eval_rewards = []
         eval_lengths = []
         
-        obs = self.env.reset()
+        obs = reset_env(self.env)
         
         for episode in range(num_episodes):
             episode_reward = 0
@@ -345,7 +346,7 @@ class PPOTrainer:
                     action_outputs = self.policy.sample_actions(obs_tensor)
                 
                 actions = self._convert_actions_to_env(action_outputs)
-                obs, rewards, dones, infos = self.env.step(actions)
+                obs, rewards, dones, infos = step_env(self.env, actions)
                 
                 episode_reward += sum(rewards)
                 episode_length += 1
@@ -520,6 +521,8 @@ def main():
                        help='Directory for logging')
     parser.add_argument('--checkpoint-dir', type=str, default='models/checkpoints',
                        help='Directory for saving checkpoints')
+    parser.add_argument('--dry_run', type=int, default=0,
+                       help='If > 0, run this many env steps and exit')
     
     args = parser.parse_args()
     
@@ -545,6 +548,15 @@ def main():
         trainer.checkpoint_dir = Path(args.checkpoint_dir)
         trainer.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     
+    if args.dry_run:
+        obs = reset_env(trainer.env)
+        for _ in range(args.dry_run):
+            action = trainer.env.action_space.sample()
+            obs, _, done, _ = step_env(trainer.env, action)
+            if done:
+                obs = reset_env(trainer.env)
+        return
+
     # Start training
     trainer.train(max_steps=args.max_steps, resume_from=args.resume)
 
