@@ -3,6 +3,9 @@ from __future__ import annotations
 from rlbot.agents.base_agent import SimpleControllerState
 import numpy as np
 
+CONT_DIM = 5
+DISC_DIM = 3
+
 # Threshold for discrete buttons
 BTN_T = 0.5
 

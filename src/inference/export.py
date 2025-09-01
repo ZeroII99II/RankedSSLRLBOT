@@ -1,116 +1,62 @@
-"""
-Export best checkpoint to TorchScript for RLBot inference.
-
-Expected contract:
-- There exists a build_policy(obs_dim, n_cont, n_disc) -> nn.Module in src.training.policy
-- Checkpoint at --ckpt contains state_dict compatible with that policy
-- Outputs: models/exported/ssl_policy.ts
-"""
 from __future__ import annotations
 import argparse
-import os
-import time
 from pathlib import Path
-
 import torch
 
-# Defaults (adjust if your repo paths differ)
-DEFAULT_CKPT = Path("models/checkpoints/best.pt")
-DEFAULT_OUT = Path("models/exported/ssl_policy.ts")
-
-# Observation / action sizes must match training
-OBS_DIM = 1 + 1  # placeholder; will be overridden below if found
-N_CONT = 5       # steer, throttle, pitch, yaw, roll
-N_DISC = 3       # jump, boost, handbrake
-
-
-def _infer_obs_dim_from_repo() -> int:
-    """Try to discover OBS_SIZE from your training code to avoid drift."""
-    try:
-        # If your ModernObsBuilder defines OBS_SIZE, import and read it here
-        from ModernObsBuilder import OBS_SIZE  # type: ignore
-        if isinstance(OBS_SIZE, int) and OBS_SIZE > 0:
-            return OBS_SIZE
-    except Exception:
-        pass
-    # Fallback: environment variable override or last-resort constant
-    env_val = os.getenv("SSL_OBS_SIZE")
-    if env_val and env_val.isdigit():
-        return int(env_val)
-    # Final fallback — you MUST set this to your real obs size
-    return 128
-
+DEFAULT_OUT = "models/exported/ssl_policy.ts"
+OBS_DIM_DEFAULT = 107
+CONT_DIM = 5
+DISC_DIM = 3
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--ckpt", type=Path, default=DEFAULT_CKPT)
-    parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
-    parser.add_argument("--obs_dim", type=int, default=None)
-    parser.add_argument("--n_cont", type=int, default=N_CONT)
-    parser.add_argument("--n_disc", type=int, default=N_DISC)
-    parser.add_argument("--sb3", action="store_true", help="Load SB3 PPO checkpoint")
-    args = parser.parse_args()
-
-    obs_dim = args.obs_dim or _infer_obs_dim_from_repo()
-    n_cont = args.n_cont
-    n_disc = args.n_disc
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--sb3", action="store_true", help="export from SB3 PPO zip")
+    ap.add_argument("--ckpt", type=str, required=True, help="path to checkpoint")
+    ap.add_argument("--out", type=str, default=DEFAULT_OUT, help="output TorchScript path")
+    ap.add_argument("--obs_dim", type=int, default=OBS_DIM_DEFAULT)
+    args = ap.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[export] obs_dim={obs_dim}, n_cont={n_cont}, n_disc={n_disc}, device={device}")
 
     if args.sb3:
         from stable_baselines3 import PPO
 
-        model = PPO.load(str(args.ckpt), device=device)
-        sb3_policy = model.policy
+        model = PPO.load(args.ckpt, device=device)
+        policy = model.policy
 
         class SB3Wrapper(torch.nn.Module):
             def __init__(self, policy):
                 super().__init__()
                 self.features_extractor = policy.features_extractor
-                self.mlp_extractor = getattr(policy, "mlp_extractor", None)
+                self.mlp_extractor = policy.mlp_extractor
                 self.action_net = policy.action_net
 
-            def forward(self, x):
-                latent = self.features_extractor(x)
+            def forward(self, obs: torch.Tensor):
+                x = self.features_extractor(obs)
                 if self.mlp_extractor is not None:
-                    latent, _ = self.mlp_extractor(latent)
-                out = self.action_net(latent)
-                cont = torch.tanh(out[:, :n_cont])
-                disc_logits = out[:, n_cont:n_cont + n_disc]
-                return cont, disc_logits
+                    x, _ = self.mlp_extractor(x)
+                logits = self.action_net(x)
+                a_cont = torch.tanh(logits[:, :CONT_DIM])
+                a_disc_logits = logits[:, CONT_DIM:CONT_DIM+DISC_DIM]
+                return a_cont, a_disc_logits
 
-        module = SB3Wrapper(sb3_policy).to(device)
-        example = torch.zeros(1, obs_dim, device=device)
-        with torch.no_grad():
-            traced = torch.jit.trace(module, example)
+        module = SB3Wrapper(policy).to(device)
+        example = torch.zeros(1, args.obs_dim, device=device)
+        scripted = torch.jit.trace(module, example)
     else:
-        # Lazy import to avoid heavy deps on import
-        from src.training.policy import build_policy  # your implementation
+        from src.training.policy import build_policy
 
-        policy = build_policy(obs_dim, n_cont, n_disc).to(device)
+        policy = build_policy(args.obs_dim, CONT_DIM, DISC_DIM).to(device)
         ckpt = torch.load(args.ckpt, map_location=device)
-
-        # Flexible loaders: accept either direct state_dict or nested
         state_dict = ckpt.get("model_state_dict") or ckpt.get("state_dict") or ckpt
         policy.load_state_dict(state_dict, strict=False)
         policy.eval()
+        example = torch.zeros(1, args.obs_dim, device=device)
+        scripted = torch.jit.trace(policy, example)
 
-        # Include normalization constants if your pipeline uses them
-        if hasattr(policy, "set_normalization"):
-            try:
-                policy.set_normalization(ckpt.get("obs_norm"), ckpt.get("act_norm"))
-            except Exception:
-                pass
-
-        example = torch.zeros(1, obs_dim, device=device)
-        with torch.no_grad():
-            traced = torch.jit.trace(policy, example)
-
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    traced.save(str(args.out))
-    print(f"[export] Saved TorchScript → {args.out}")
-
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    scripted.save(out_path.as_posix())
 
 if __name__ == "__main__":
     main()
