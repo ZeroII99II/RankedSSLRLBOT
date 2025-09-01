@@ -4,20 +4,41 @@ Provides probabilistic scenario generation for different training phases
 with emphasis on SSL-level mechanics like aerials, wall reads, and backboard plays.
 """
 
+from __future__ import annotations
+
 import random
 from typing import Dict, List, Optional, Tuple
 import numpy as np
-from rlgym.utils import StateSetter
-from rlgym.utils.common_values import (
-    CAR_MAX_SPEED, BALL_MAX_SPEED, CEILING_Z, BALL_RADIUS, 
-    SIDE_WALL_X, BACK_WALL_Y, CAR_MAX_ANG_VEL
+
+from src.compat.rlgym_v2_compat import StateSetter
+from src.compat.rlgym_v2_compat.common_values import (
+    CAR_MAX_SPEED,
+    BALL_MAX_SPEED,
+    CEILING_Z,
+    BALL_RADIUS,
+    SIDE_WALL_X,
+    BACK_WALL_Y,
+    CAR_MAX_ANG_VEL,
 )
-from rlgym.utils.gamestates import GameState
-from rlgym.utils.math import rand_vec3
-from rlgym.utils.state_setters import DefaultState, StateWrapper
 
 
-class SSLStateSetter(StateSetter):
+def rand_vec3(min_val: float = -1.0, max_val: float = 1.0) -> np.ndarray:
+    return np.random.uniform(min_val, max_val, 3)
+
+
+class DefaultState:
+    """Placeholder for compatibility during testing."""
+    pass
+
+
+class StateWrapper:
+    """Minimal stand-in used only for type hints in tests."""
+    def __init__(self):
+        self.cars = []
+        self.ball = type("Ball", (), {"position": np.zeros(3)})()
+
+
+class ModernStateSetter(StateSetter):
     """
     SSL-focused state setter with curriculum-based scenario sampling.
     
@@ -465,3 +486,7 @@ class SSLStateSetter(StateSetter):
                 car.boost = random.uniform(50, 100)
             else:
                 car.boost = random.uniform(0, 50)
+
+# Backwards compatibility
+SSLStateSetter = ModernStateSetter
+
