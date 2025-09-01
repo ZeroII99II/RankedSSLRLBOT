@@ -65,8 +65,8 @@ class PPOTrainer:
         )
         
         # Setup environment
-        self.env = self._create_environment()
         self.action_parser = DefaultAction()
+        self.env = self._create_environment()
         
         # Training state
         self.training_steps = 0
@@ -164,8 +164,8 @@ class PPOTrainer:
             task = progress.add_task("Collecting rollouts...", total=num_steps)
             
             for step in range(num_steps):
-                # Convert observations to tensor
-                obs_tensor = torch.FloatTensor(obs).to(self.device)
+                # Convert observations to tensor with batch dimension
+                obs_tensor = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
                 
                 # Get action from policy
                 with torch.no_grad():
@@ -177,22 +177,23 @@ class PPOTrainer:
                 actions = self._convert_actions_to_env(action_outputs)
                 
                 # Step environment
-                next_obs, rewards, dones, infos = step_env(self.env, actions)
-                
+                next_obs, reward, done, info = step_env(self.env, actions)
+
                 # Store experience
                 obs_buffer.append(obs_tensor.cpu())
                 action_buffer.append(action_outputs)
-                reward_buffer.append(torch.FloatTensor(rewards).to(self.device))
+                reward_buffer.append(torch.tensor([reward], dtype=torch.float32).to(self.device))
                 value_buffer.append(value.cpu())
                 log_prob_buffer.append(log_prob.cpu())
-                done_buffer.append(torch.BoolTensor(dones).to(self.device))
-                
+                done_buffer.append(torch.tensor([done], dtype=torch.bool).to(self.device))
+
                 obs = next_obs
-                
+
                 # Track episode statistics
-                if any(dones):
-                    episode_rewards.extend([sum(r) for r in rewards if r])
-                    episode_lengths.extend([len(r) for r in rewards if r])
+                if done:
+                    episode_rewards.append(reward)
+                    episode_lengths.append(step + 1)
+                    obs, _info = reset_env(self.env)
                 
                 progress.update(task, advance=1)
         
@@ -210,21 +211,18 @@ class PPOTrainer:
         
         return rollouts
     
-    def _convert_actions_to_env(self, action_outputs: Dict[str, torch.Tensor]) -> List[np.ndarray]:
+    def _convert_actions_to_env(self, action_outputs: Dict[str, torch.Tensor]) -> np.ndarray:
         """Convert policy actions to environment format."""
         continuous_actions = action_outputs['continuous_actions'].cpu().numpy()
         discrete_actions = action_outputs['discrete_actions'].cpu().numpy()
-        
-        # Combine continuous and discrete actions
-        actions = []
-        for i in range(continuous_actions.shape[0]):
-            action = np.concatenate([
-                continuous_actions[i],  # throttle, steer, pitch, yaw, roll
-                discrete_actions[i]     # jump, boost, handbrake
-            ])
-            actions.append(action)
-        
-        return actions
+
+        # Combine continuous and discrete actions for single environment
+        action = np.concatenate([
+            continuous_actions[0],  # throttle, steer, pitch, yaw, roll
+            discrete_actions[0]     # jump, boost, handbrake
+        ])
+
+        return action
     
     def _compute_advantages(self, rollouts: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
         """Compute advantages and returns using GAE."""
@@ -338,25 +336,26 @@ class PPOTrainer:
         eval_lengths = []
         
         obs, _info = reset_env(self.env)
-        
+
         for episode in range(num_episodes):
             episode_reward = 0
             episode_length = 0
             done = False
-            
+
             while not done:
-                obs_tensor = torch.FloatTensor(obs).to(self.device)
-                
+                obs_tensor = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
+
                 with torch.no_grad():
                     action_outputs = self.policy.sample_actions(obs_tensor)
-                
+
                 actions = self._convert_actions_to_env(action_outputs)
-                obs, rewards, dones, infos = step_env(self.env, actions)
-                
-                episode_reward += sum(rewards)
+                obs, reward, done, info = step_env(self.env, actions)
+
+                episode_reward += reward
                 episode_length += 1
-                done = any(dones)
-            
+                if done:
+                    obs, _info = reset_env(self.env)
+
             eval_rewards.append(episode_reward)
             eval_lengths.append(episode_length)
         
