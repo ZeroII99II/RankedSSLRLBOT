@@ -19,6 +19,36 @@ if 'imp' not in sys.modules:
     imp.find_module = find_module
     sys.modules['imp'] = imp
 
+rlbot_mod = types.ModuleType("rlbot")
+agents_mod = types.ModuleType("rlbot.agents")
+base_agent_mod = types.ModuleType("rlbot.agents.base_agent")
+
+class SimpleControllerState:
+    def __init__(self):
+        self.throttle = 0.0
+        self.steer = 0.0
+        self.pitch = 0.0
+        self.yaw = 0.0
+        self.roll = 0.0
+        self.jump = False
+        self.boost = False
+        self.handbrake = False
+
+class BaseAgent:
+    def __init__(self, *args, **kwargs):
+        self.logger = types.SimpleNamespace(info=lambda *a, **k: None,
+                                            warn=lambda *a, **k: None,
+                                            error=lambda *a, **k: None)
+
+base_agent_mod.SimpleControllerState = SimpleControllerState
+base_agent_mod.BaseAgent = BaseAgent
+agents_mod.base_agent = base_agent_mod
+rlbot_mod.agents = agents_mod
+
+sys.modules.setdefault("rlbot", rlbot_mod)
+sys.modules.setdefault("rlbot.agents", agents_mod)
+sys.modules.setdefault("rlbot.agents.base_agent", base_agent_mod)
+
 import torch
 from rlbot.agents.base_agent import SimpleControllerState
 from src.inference import export as export_mod
