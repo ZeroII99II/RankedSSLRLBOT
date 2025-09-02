@@ -76,7 +76,7 @@ class GameState:
 api_rl_mod.GameState = GameState
 sys.modules.setdefault("rlgym.rocket_league.api", api_rl_mod)
 # ---------------------------------------------------------------------------
-from src.training.env_factory import RL2v2Env
+from src.training.env_factory import RLMatchEnv
 from src.training.train import PPOTrainer
 
 
@@ -152,12 +152,16 @@ class DummyCritic(torch.nn.Module):
         return self.linear(obs)
 
 
-# Helper to configure trainer with RL2v2Env and dummy networks
+# Helper to configure trainer with RLMatchEnv and dummy networks
 
 def setup_trainer(monkeypatch, seed=0):
     monkeypatch.setattr('src.training.train.CurriculumManager', DummyCurriculum)
     monkeypatch.setattr(PPOTrainer, '_load_config', lambda self, path: minimal_config())
-    monkeypatch.setattr(PPOTrainer, '_create_environment', lambda self: RL2v2Env(seed=self.seed))
+    monkeypatch.setattr(
+        PPOTrainer,
+        '_create_environment',
+        lambda self: RLMatchEnv(seed=self.seed, num_players_per_team=1),
+    )
     monkeypatch.setattr(PPOTrainer, '_convert_actions_to_env',
                         lambda self, a: {
                             'cont': a['continuous_actions'][0].cpu().numpy(),

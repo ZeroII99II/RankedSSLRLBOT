@@ -12,6 +12,9 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--ckpt_dir", type=str, default="models/checkpoints")
     ap.add_argument("--tensorboard", type=str, default="runs/ssl_v2")
+    ap.add_argument("--switch_every", type=int, default=100_000,
+                    help="Timesteps between team size switches")
+
     ap.add_argument("--render", action="store_true", help="Render a single env in a viewer thread")
 
     ap.add_argument("--render", action="store_true", help="Enable environment rendering")
@@ -20,6 +23,9 @@ def main():
 
     os.makedirs(args.ckpt_dir, exist_ok=True)
 
+    team_sizes = [1, 2]
+    team_idx = 0
+    env_fns = [make_env(seed=args.seed + i, team_size=team_sizes[team_idx]) for i in range(args.envs)]
     env_fns = [
         make_env(seed=args.seed + i, render=args.render and i == 0)
         for i in range(args.envs)
@@ -44,6 +50,22 @@ def main():
         seed=args.seed,
         device="cuda" if torch.cuda.is_available() else "cpu",
     )
+
+    steps_done = 0
+    while steps_done < args.steps:
+        learn_steps = min(args.switch_every, args.steps - steps_done)
+        model.learn(total_timesteps=learn_steps, reset_num_timesteps=False)
+        steps_done += learn_steps
+        team_idx = (team_idx + 1) % len(team_sizes)
+        if steps_done < args.steps:
+            vec.close()
+            env_fns = [
+                make_env(seed=args.seed + i, team_size=team_sizes[team_idx])
+                for i in range(args.envs)
+            ]
+            vec = make_vec(env_fns)
+            model.set_env(vec)
+
 
     if args.render:
         def _viewer():

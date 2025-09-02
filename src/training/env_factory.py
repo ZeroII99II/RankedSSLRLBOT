@@ -48,6 +48,9 @@ CONT_DIM = 5
 DISC_DIM = 3
 
 
+class RLMatchEnv(gym.Env):
+    """Small Rocket League environment with configurable team sizes."""
+
 class CarDataWrapper:
     """Expose the minimal car interface expected by our builders."""
 
@@ -147,6 +150,8 @@ class RL2v2Env(gym.Env):
 
     metadata = {"render_modes": ["rgb_array", "human"]}
 
+    def __init__(self, seed: int = 42, num_players_per_team: int = 2):
+
     def __init__(self, seed: int = 42, render: bool = False):
         super().__init__()
 
@@ -177,12 +182,15 @@ class RL2v2Env(gym.Env):
 
         self._state: GameState | None = None  # raw RLGym state
         self._prev_action = np.zeros(CONT_DIM + DISC_DIM, dtype=np.float32)
+        self._num_players_per_team = num_players_per_team
+
         self._render_enabled = render
 
         # Scenario configuration
         self._scenario_funcs = SCENARIOS
         cfg_path = Path(__file__).resolve().parents[2] / "configs" / "scenario_weights.yaml"
         self._scenario_weights = self._load_scenario_weights(cfg_path)
+ 
 
     # ------------------------------------------------------------------
     # State helpers
@@ -198,6 +206,31 @@ class RL2v2Env(gym.Env):
         return {str(k): float(v) for k, v in data.items() if k in self._scenario_funcs}
 
     def _random_state(self) -> GameState:
+        """Create a randomly-initialised game state for the configured teams."""
+        players = []
+        total_players = 2 * self._num_players_per_team
+        for i in range(total_players):
+            team = 0 if i < self._num_players_per_team else 1
+            car = CarData(team_num=team)
+            car.set_pos(*self.np_random.uniform(-1000, 1000, size=3))
+            car.set_lin_vel(*self.np_random.uniform(-500, 500, size=3))
+            car.set_ang_vel(*self.np_random.uniform(-5, 5, size=3))
+            car.set_rot(*self.np_random.uniform(-np.pi, np.pi, size=3))
+            player = PlayerData(
+                car_data=car,
+                team_num=team,
+                boost_amount=float(self.np_random.uniform(0, 100)),
+            )
+            players.append(player)
+
+        ball = BallData()
+        ball.set_pos(*self.np_random.uniform(-1000, 1000, size=3))
+        ball.set_lin_vel(*self.np_random.uniform(-500, 500, size=3))
+
+        pads = [BoostPad(position=loc.astype(np.float32)) for loc in common_values.BOOST_LOCATIONS]
+
+        return GameState(ball=ball, players=players, boost_pads=pads)
+
         """Create a randomly-initialised 2v2 RLGym ``GameState``."""
 
         gs = self._engine.create_base_state()
@@ -404,6 +437,12 @@ class RL2v2Env(gym.Env):
                 pass
         return frame
 
+
+def make_env(seed: int = 42, team_size: int = 2) -> Callable[[], RLMatchEnv]:
+    """Return a thunk that creates a seeded ``RLMatchEnv`` instance."""
+
+    def _thunk() -> RLMatchEnv:
+        return RLMatchEnv(seed=seed, num_players_per_team=team_size)
 
 def make_env(seed: int = 42, render: bool = False) -> Callable[[], RL2v2Env]:
     """Return a thunk that creates a seeded ``RL2v2Env`` instance."""
