@@ -152,8 +152,7 @@ class PPOTrainer:
                 common_conditions.TimeoutCondition(300),  # 5 minutes
                 common_conditions.GoalScoredCondition()
             ],
-            action_parser=self.action_parser,
-            seed=self.seed
+            action_parser=self.action_parser
         )
         
         return env
@@ -161,10 +160,7 @@ class PPOTrainer:
     def _collect_rollouts(self, num_steps: int) -> Dict[str, torch.Tensor]:
         """Collect rollouts for PPO training."""
         obs_buffer = []
-        action_buffer = {
-            'continuous_actions': [],
-            'discrete_actions': []
-        }
+        action_buffer = []
         reward_buffer = []
         value_buffer = []
         log_prob_buffer = []
@@ -176,93 +172,46 @@ class PPOTrainer:
         episode_reward = 0.0
         episode_len = 0
         
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeElapsedColumn(),
-            console=self.console
-        ) as progress:
-            task = progress.add_task("Collecting rollouts...", total=num_steps)
-            
-            for step in range(num_steps):
-                # Convert observations to tensor with batch dimension
-                obs_tensor = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
-                
-                # Get action from policy
-                with torch.no_grad():
-                    action_outputs = self.policy.sample_actions(obs_tensor)
-                    value = self.critic(obs_tensor)
-                    log_prob = self.policy.log_prob(obs_tensor, action_outputs)
-                
-                # Convert actions to environment format
-                actions = self._convert_actions_to_env(action_outputs)
-                
-                # Step environment
-                next_obs, reward, done, info = step_env(self.env, actions)
+        for _ in range(num_steps):
+            # Convert observations to tensor with batch dimension
+            obs_tensor = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
 
-                episode_reward += reward
-                episode_len += 1
+            # Get action and value predictions
+            with torch.no_grad():
+                action_outputs = self.policy.sample_actions(obs_tensor)
+                value = self.critic(obs_tensor)
+                log_prob = self.policy.log_prob(obs_tensor, action_outputs)
 
-                # Store experience
-                obs_buffer.append(obs_tensor.cpu())
-                action_buffer['continuous_actions'].append(
-                    action_outputs['continuous_actions']
-                )
-                action_buffer['discrete_actions'].append(
-                    action_outputs['discrete_actions']
-                )
+            # Step environment using converted actions
+            env_actions = self._convert_actions_to_env(action_outputs)
+            next_obs, reward, done, _info = step_env(self.env, env_actions)
 
-                action_buffer.append({
+            # Store experience
+            obs_buffer.append(obs_tensor.cpu())
+            action_buffer.append({
+                'continuous_actions': action_outputs['continuous_actions'].cpu(),
+                'discrete_actions': action_outputs['discrete_actions'].cpu(),
+            })
+            reward_buffer.append(torch.tensor([reward], dtype=torch.float32))
+            value_buffer.append(value.cpu())
+            log_prob_buffer.append(log_prob.cpu())
+            done_buffer.append(torch.tensor([done], dtype=torch.bool))
 
-                    "continuous_actions": action_outputs["continuous_actions"].cpu(),
-                    "discrete_actions": action_outputs["discrete_actions"].cpu(),
-                })
-                reward_buffer.append(torch.tensor([reward], dtype=torch.float32).to(self.device))
+            obs = next_obs
 
-                    'continuous_actions': action_outputs['continuous_actions'].cpu(),
-                    'discrete_actions': action_outputs['discrete_actions'].cpu(),
-                })
-                reward_tensor = torch.tensor([reward], dtype=torch.float32).to(self.device)
-                reward_buffer.append(reward_tensor)
-
-                value_buffer.append(value.cpu())
-                log_prob_buffer.append(log_prob.cpu())
-                done_buffer.append(torch.tensor([done], dtype=torch.bool).to(self.device))
-
-                obs = next_obs
-
-                # Track episode statistics
-                episode_reward += reward
-                episode_len += 1
-                if done:
-                    episode_rewards.append(episode_reward)
-                    episode_lengths.append(episode_len)
-                    episode_reward = 0.0
-                    episode_len = 0
-                    obs, _info = reset_env(self.env)
-
-                progress.update(task, advance=1)
-        
-        # Convert buffers to tensors
-        actions = {
-            'continuous_actions': torch.cat(action_buffer['continuous_actions']),
-            'discrete_actions': torch.cat(action_buffer['discrete_actions'])
-
-
-            "continuous_actions": torch.cat([a["continuous_actions"] for a in action_buffer]),
-            "discrete_actions": torch.cat([a["discrete_actions"] for a in action_buffer]),
-
-            'continuous_actions': torch.cat([a['continuous_actions'] for a in action_buffer]),
-            'discrete_actions': torch.cat([a['discrete_actions'] for a in action_buffer]),
-
-
-        }
+            # Track episode statistics
+            episode_reward += reward
+            episode_len += 1
+            if done:
+                episode_rewards.append(episode_reward)
+                episode_lengths.append(episode_len)
+                episode_reward = 0.0
+                episode_len = 0
+                obs, _info = reset_env(self.env)
 
         rollouts = {
             'observations': torch.cat(obs_buffer),
-            'actions': actions,
+            'actions': action_buffer,
             'rewards': torch.cat(reward_buffer),
             'values': torch.cat(value_buffer),
             'log_probs': torch.cat(log_prob_buffer),
@@ -270,7 +219,7 @@ class PPOTrainer:
             'episode_rewards': episode_rewards,
             'episode_lengths': episode_lengths,
         }
-        
+
         return rollouts
     
     def _convert_actions_to_env(self, action_outputs: Dict[str, torch.Tensor]) -> np.ndarray:
@@ -590,7 +539,6 @@ def main():
     parser.add_argument('--dry_run', type=int, default=0,
                        help='If > 0, run this many env steps and exit')
     parser.add_argument('--seed', type=int, default=None,
-                       help='Random seed for reproducibility')
                         help='Random seed for reproducibility')
     
     args = parser.parse_args()
