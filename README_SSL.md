@@ -7,6 +7,7 @@ A clean, reproducible reinforcement learning pipeline for training SSL-level Roc
 ### 1) Environment
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\env\setup.ps1
+python scripts\fetch_rlbotserver.py  # download RLBotServer binary
 ```
 
 ### 2) Train
@@ -186,15 +187,20 @@ Each phase has specific progression gates:
    ```
 
 2. **Run setup script:**
-   ```bash
-   # Windows PowerShell
-   .\env\setup.ps1
-   
-   # Linux/macOS
-   bash env/setup.sh
-   ```
+    ```bash
+    # Windows PowerShell
+    .\env\setup.ps1
 
-3. **Verify installation:**
+    # Linux/macOS
+    bash env/setup.sh
+    ```
+
+3. **Download RLBotServer:**
+    ```bash
+    python scripts/fetch_rlbotserver.py
+    ```
+
+4. **Verify installation:**
    ```bash
    # Activate environment
    # Windows

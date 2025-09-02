@@ -32,3 +32,8 @@ def test_default_policy_export(tmp_path):
     scripted.save(out_file.as_posix())
     assert out_file.exists()
 
+    loaded = torch.jit.load(out_file.as_posix())
+    out_cont, out_disc = loaded(torch.zeros(1, 107))
+    assert out_cont.shape == (1, 5)
+    assert out_disc.shape == (1, 3)
+

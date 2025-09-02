@@ -1,84 +1,59 @@
-############################################################
-# PPO training configuration for the SSL bot.
-# These settings are consumed by src/training/train.py
-# and describe the model architecture, learning hyper-
-# parameters and environment behaviour.
-############################################################
+"""
+Training configuration consumed by ``src/training/train.py``.
+
+The file groups related settings into logical blocks:
+
+* ``policy``   – model architecture options.
+* ``ppo``      – optimisation hyperparameters.
+* ``training`` – runtime behaviour like evaluation and checkpointing.
+* ``env``      – environment parameters such as team size.
+* ``device``   – hardware selection.
+* ``curriculum`` – progression settings shared with the trainer.
+"""
 
 policy:
-  # Dimension of the observation vector produced by SSLObsBuilder
   obs_dim: 107
-  # Hidden layer sizes for both policy and critic networks
   hidden_sizes: [1024, 1024, 512]
-  # Number of continuous action outputs (steer, throttle, pitch, yaw, roll)
   continuous_actions: 5
-  # Number of discrete action outputs (jump, boost, handbrake)
   discrete_actions: 3
-  # Enable attention block on top of MLP backbone
   use_attention: true
-  # Attention head configuration
   num_heads: 8
   head_dim: 64
-  # Dropout rate applied throughout the network
   dropout: 0.1
-  # Activation function used by MLP blocks (silu, relu, tanh, ...)
   activation: silu
 
 ppo:
-  # Environment steps collected before each update
   steps_per_update: 32768
-  # Number of mini-batches per PPO epoch
   mini_batches: 8
-  # PPO epochs per update
   n_epochs: 4
-  # Discount factor for returns
   gamma: 0.99
-  # Generalized Advantage Estimation parameter
   gae_lambda: 0.95
-  # Clipping range for policy loss
   clip_ratio: 0.2
-  # Learning rates for actor and critic
   actor_lr: 3.0e-4
   critic_lr: 3.0e-4
-  # Loss coefficients
   value_loss_coef: 0.5
   entropy_coef: 0.01
-  # Gradient clipping
   max_grad_norm: 0.5
 
 training:
-  # Random seed for reproducibility
   seed: 42
-  # Frequency (in env steps) to run evaluation episodes
   eval_frequency: 327680
-  # Number of episodes to run during evaluation
   eval_episodes: 10
-  # Frequency (in env steps) to save model checkpoints
   save_frequency: 655360
 
 env:
-  # Number of agents on each team
   team_size: 3
-  # Physics ticks between decisions
   tick_skip: 8
-  # Enable self-play against snapshots
   self_play: true
-  # Use RocketSim injector for faster simulation
   use_injector: true
-  # Spawn built-in opponents when not using self-play
   spawn_opponents: false
 
 device:
-  # Automatically choose CUDA when available
   auto_detect: true
-  # Allow CUDA usage when auto_detect is true
   cuda: true
-  # Manual override when auto_detect is false
   device: cpu
 
 curriculum:
-  # Automatically progress through curriculum phases
   auto_progress: true
-  # Check progress and possibly advance every N env steps
   progress_check_frequency: 200000
 
