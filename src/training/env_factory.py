@@ -143,16 +143,14 @@ class GameStateWrapper:
 class RL2v2Env(gym.Env):
     """Small 2v2 Rocket League environment using project builders."""
 
-    # ``gym.Env`` expects ``metadata['render_modes']`` to advertise the
-    # available render modes.  We support a single RGB array mode which is
-    # used by the training script when ``--render`` is supplied.
-    metadata = {"render_modes": ["rgb_array"], "render_fps": 60}
+    metadata = {"render_modes": ["rgb_array", "human"], "render_fps": 60}
 
-    metadata = {"render_modes": ["rgb_array", "human"]}
-
-    def __init__(self, seed: int = 42, num_players_per_team: int = 2):
-
-    def __init__(self, seed: int = 42, render: bool = False):
+    def __init__(
+        self,
+        seed: int = 42,
+        render: bool = False,
+        num_players_per_team: int = 2,
+    ):
         super().__init__()
 
         # Observation and action spaces mirror the production setup.
@@ -206,31 +204,6 @@ class RL2v2Env(gym.Env):
         return {str(k): float(v) for k, v in data.items() if k in self._scenario_funcs}
 
     def _random_state(self) -> GameState:
-        """Create a randomly-initialised game state for the configured teams."""
-        players = []
-        total_players = 2 * self._num_players_per_team
-        for i in range(total_players):
-            team = 0 if i < self._num_players_per_team else 1
-            car = CarData(team_num=team)
-            car.set_pos(*self.np_random.uniform(-1000, 1000, size=3))
-            car.set_lin_vel(*self.np_random.uniform(-500, 500, size=3))
-            car.set_ang_vel(*self.np_random.uniform(-5, 5, size=3))
-            car.set_rot(*self.np_random.uniform(-np.pi, np.pi, size=3))
-            player = PlayerData(
-                car_data=car,
-                team_num=team,
-                boost_amount=float(self.np_random.uniform(0, 100)),
-            )
-            players.append(player)
-
-        ball = BallData()
-        ball.set_pos(*self.np_random.uniform(-1000, 1000, size=3))
-        ball.set_lin_vel(*self.np_random.uniform(-500, 500, size=3))
-
-        pads = [BoostPad(position=loc.astype(np.float32)) for loc in common_values.BOOST_LOCATIONS]
-
-        return GameState(ball=ball, players=players, boost_pads=pads)
-
         """Create a randomly-initialised 2v2 RLGym ``GameState``."""
 
         gs = self._engine.create_base_state()
@@ -272,11 +245,19 @@ class RL2v2Env(gym.Env):
             car.is_autoflipping = False
             car.autoflip_timer = 0.0
             car.autoflip_direction = 1.0
+            car.on_ground = True
+            car.has_flip = True
+            car.is_demoed = False
             phys = PhysicsObject()
             phys.position = self.np_random.uniform(-1000, 1000, size=3).astype(np.float32)
             phys.linear_velocity = self.np_random.uniform(-500, 500, size=3).astype(np.float32)
             phys.angular_velocity = self.np_random.uniform(-5, 5, size=3).astype(np.float32)
             phys.euler_angles = self.np_random.uniform(-np.pi, np.pi, size=3).astype(np.float32)
+            phys.forward = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+            phys.up = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+            phys.pitch = 0.0
+            phys.yaw = 0.0
+            phys.roll = 0.0
             car.physics = phys
             gs.cars[i] = car
 
