@@ -66,6 +66,7 @@ def test_can_progress_missing_metric_blocks_and_logs(caplog):
     bronze = manager.get_current_phase()
     required_steps = max(bronze.min_training_steps, bronze.progression_gates["min_games"])
     manager.training_steps = required_steps
+    manager.games_played = bronze.progression_gates["min_games"]
 
     eval_metrics = {
         "on_target_pct": bronze.progression_gates["on_target_pct"],

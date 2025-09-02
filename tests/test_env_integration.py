@@ -4,6 +4,7 @@ import numpy as np
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from src.training.env_factory import RL2v2Env, CONT_DIM, DISC_DIM
+from rlgym.api.config import ObsBuilder, RewardFunction
 
 
 def test_reset_returns_obs_vec():
@@ -11,6 +12,8 @@ def test_reset_returns_obs_vec():
     obs, info = env.reset()
     assert isinstance(obs, np.ndarray)
     assert obs.shape == env.observation_space.shape
+    assert isinstance(env._obs_builder, ObsBuilder)
+    assert isinstance(env._reward_fn, RewardFunction)
 
 
 def test_step_produces_float_reward():

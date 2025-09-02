@@ -6,7 +6,6 @@ with emphasis on SSL-level mechanics like aerials, wall reads, and backboard pla
 
 from __future__ import annotations
 
-import random
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 
@@ -20,10 +19,11 @@ from rlgym.rocket_league.common_values import (
     CAR_MAX_ANG_VEL,
 )
 
+def rand_vec3(rng: np.random.Generator, max_magnitude: float = 1.0) -> np.ndarray:
+    """Generate a random 3D vector with components in [-max_magnitude, max_magnitude]."""
+    return rng.uniform(-max_magnitude, max_magnitude, 3)
 
-def rand_vec3(min_val: float = -1.0, max_val: float = 1.0) -> np.ndarray:
-    return np.random.uniform(min_val, max_val, 3)
-
+=======
 
 class DefaultState:
     """Placeholder for compatibility during testing."""
@@ -60,11 +60,16 @@ class ModernStateSetter:
     def __init__(
         self,
         curriculum_phase: str = "bronze",
-        scenario_weights: Optional[Dict[str, float]] = None
+        scenario_weights: Optional[Dict[str, float]] = None,
+        rng: Optional[np.random.Generator] = None,
     ):
         super().__init__()
         self.curriculum_phase = curriculum_phase
         self.scenario_weights = scenario_weights or self._get_default_weights()
+        self.rng = rng or np.random.default_rng()
+
+    def _rand_vec3(self, scale: float) -> np.ndarray:
+        return self.rng.uniform(-scale, scale, 3)
         
     def _get_default_weights(self) -> Dict[str, float]:
         """Get default scenario weights based on curriculum phase."""
@@ -165,7 +170,10 @@ class ModernStateSetter:
         else:
             weights = [1.0 / len(scenarios)] * len(scenarios)
         
-        scenario = np.random.choice(scenarios, p=weights)
+        scenario = self.rng.choice(scenarios, p=weights)
+
+        scenario = self.rng.choice(scenarios, p=weights)
+        self._last_scenario = scenario
         
         # Execute selected scenario
         if scenario == 'kickoff':
@@ -201,13 +209,15 @@ class ModernStateSetter:
     def _ground_play_scenario(self, state_wrapper: StateWrapper):
         """Ground-based play scenario."""
         # Ball on ground with moderate speed
-        ball_x = random.uniform(-3000, 3000)
-        ball_y = random.uniform(-4000, 4000)
+        ball_x = self.rng.uniform(-3000, 3000)
+        ball_y = self.rng.uniform(-4000, 4000)
         state_wrapper.ball.set_pos(x=ball_x, y=ball_y, z=BALL_RADIUS)
         
         # Ball velocity toward one of the goals
-        goal_direction = 1 if random.random() > 0.5 else -1
-        ball_vel = rand_vec3(random.uniform(500, 1500))
+        goal_direction = 1 if self.rng.random() > 0.5 else -1
+        ball_vel = rand_vec3(self.rng, self.rng.uniform(500, 1500))
+
+        ball_vel = self._rand_vec3(self.rng.uniform(500, 1500))
         ball_vel[1] = goal_direction * abs(ball_vel[1])
         state_wrapper.ball.set_lin_vel(*ball_vel)
         
@@ -217,14 +227,16 @@ class ModernStateSetter:
     def _simple_aerial_scenario(self, state_wrapper: StateWrapper):
         """Simple aerial scenario with ball at moderate height."""
         # Ball in air
-        ball_x = random.uniform(-2000, 2000)
-        ball_y = random.uniform(-3000, 3000)
-        ball_z = random.uniform(200, 800)
+        ball_x = self.rng.uniform(-2000, 2000)
+        ball_y = self.rng.uniform(-3000, 3000)
+        ball_z = self.rng.uniform(200, 800)
         state_wrapper.ball.set_pos(x=ball_x, y=ball_y, z=ball_z)
         
         # Ball moving horizontally
-        ball_vel = rand_vec3(random.uniform(300, 1000))
-        ball_vel[2] = random.uniform(-200, 200)  # Small vertical component
+        ball_vel = rand_vec3(self.rng, self.rng.uniform(300, 1000))
+
+        ball_vel = self._rand_vec3(self.rng.uniform(300, 1000))
+        ball_vel[2] = self.rng.uniform(-200, 200)  # Small vertical component
         state_wrapper.ball.set_lin_vel(*ball_vel)
         
         # Place cars on ground, some with boost
@@ -234,24 +246,30 @@ class ModernStateSetter:
     def _wall_bounce_scenario(self, state_wrapper: StateWrapper):
         """Wall bounce scenario for wall read training."""
         # Ball near wall
-        wall_side = random.choice(['left', 'right', 'back'])
+        wall_side = self.rng.choice(['left', 'right', 'back'])
         if wall_side == 'left':
-            ball_x = random.uniform(3500, 4000)
-            ball_y = random.uniform(-4000, 4000)
-            ball_vel = rand_vec3(random.uniform(800, 1500))
+            ball_x = self.rng.uniform(3500, 4000)
+            ball_y = self.rng.uniform(-4000, 4000)
+            ball_vel = rand_vec3(self.rng, self.rng.uniform(800, 1500))
+
+            ball_vel = self._rand_vec3(self.rng.uniform(800, 1500))
             ball_vel[0] = -abs(ball_vel[0])  # Moving toward wall
         elif wall_side == 'right':
-            ball_x = random.uniform(-4000, -3500)
-            ball_y = random.uniform(-4000, 4000)
-            ball_vel = rand_vec3(random.uniform(800, 1500))
+            ball_x = self.rng.uniform(-4000, -3500)
+            ball_y = self.rng.uniform(-4000, 4000)
+            ball_vel = rand_vec3(self.rng, self.rng.uniform(800, 1500))
+            ball_vel = self._rand_vec3(self.rng.uniform(800, 1500))
+ 
             ball_vel[0] = abs(ball_vel[0])  # Moving toward wall
         else:  # back
-            ball_x = random.uniform(-3000, 3000)
-            ball_y = random.uniform(4500, 5000) if random.random() > 0.5 else random.uniform(-5000, -4500)
-            ball_vel = rand_vec3(random.uniform(800, 1500))
+            ball_x = self.rng.uniform(-3000, 3000)
+            ball_y = self.rng.uniform(4500, 5000) if self.rng.random() > 0.5 else self.rng.uniform(-5000, -4500)
+            ball_vel = rand_vec3(self.rng, self.rng.uniform(800, 1500))
+
+            ball_vel = self._rand_vec3(self.rng.uniform(800, 1500))
             ball_vel[1] = -abs(ball_vel[1]) if ball_y > 0 else abs(ball_vel[1])
         
-        ball_z = random.uniform(100, 600)
+        ball_z = self.rng.uniform(100, 600)
         state_wrapper.ball.set_pos(x=ball_x, y=ball_y, z=ball_z)
         state_wrapper.ball.set_lin_vel(*ball_vel)
         
@@ -261,13 +279,15 @@ class ModernStateSetter:
     def _backboard_clear_scenario(self, state_wrapper: StateWrapper):
         """Backboard clear scenario."""
         # Ball near backboard
-        ball_x = random.uniform(-1000, 1000)
-        ball_y = random.uniform(4500, 5000) if random.random() > 0.5 else random.uniform(-5000, -4500)
-        ball_z = random.uniform(200, 800)
+        ball_x = self.rng.uniform(-1000, 1000)
+        ball_y = self.rng.uniform(4500, 5000) if self.rng.random() > 0.5 else self.rng.uniform(-5000, -4500)
+        ball_z = self.rng.uniform(200, 800)
         state_wrapper.ball.set_pos(x=ball_x, y=ball_y, z=ball_z)
         
         # Ball moving toward backboard
-        ball_vel = rand_vec3(random.uniform(600, 1200))
+        ball_vel = rand_vec3(self.rng, self.rng.uniform(600, 1200))
+
+        ball_vel = self._rand_vec3(self.rng.uniform(600, 1200))
         ball_vel[1] = -abs(ball_vel[1]) if ball_y > 0 else abs(ball_vel[1])
         state_wrapper.ball.set_lin_vel(*ball_vel)
         
@@ -277,14 +297,16 @@ class ModernStateSetter:
     def _aerial_intercept_scenario(self, state_wrapper: StateWrapper):
         """Aerial intercept scenario."""
         # Ball high in air
-        ball_x = random.uniform(-2000, 2000)
-        ball_y = random.uniform(-3000, 3000)
-        ball_z = random.uniform(600, 1200)
+        ball_x = self.rng.uniform(-2000, 2000)
+        ball_y = self.rng.uniform(-3000, 3000)
+        ball_z = self.rng.uniform(600, 1200)
         state_wrapper.ball.set_pos(x=ball_x, y=ball_y, z=ball_z)
         
         # Ball moving with significant horizontal velocity
-        ball_vel = rand_vec3(random.uniform(800, 1500))
-        ball_vel[2] = random.uniform(-300, 100)  # Falling
+        ball_vel = rand_vec3(self.rng, self.rng.uniform(800, 1500))
+
+        ball_vel = self._rand_vec3(self.rng.uniform(800, 1500))
+        ball_vel[2] = self.rng.uniform(-300, 100)  # Falling
         state_wrapper.ball.set_lin_vel(*ball_vel)
         
         # Place cars on ground with boost
@@ -294,15 +316,16 @@ class ModernStateSetter:
     def _double_tap_setup_scenario(self, state_wrapper: StateWrapper):
         """Double tap setup scenario."""
         # Ball high, moving toward backboard
-        ball_x = random.uniform(-1500, 1500)
-        ball_y = random.uniform(3000, 4500) if random.random() > 0.5 else random.uniform(-4500, -3000)
-        ball_z = random.uniform(800, 1400)
+        ball_x = self.rng.uniform(-1500, 1500)
+        ball_y = self.rng.uniform(3000, 4500) if self.rng.random() > 0.5 else self.rng.uniform(-4500, -3000)
+        ball_z = self.rng.uniform(800, 1400)
         state_wrapper.ball.set_pos(x=ball_x, y=ball_y, z=ball_z)
         
         # Ball moving toward backboard with good speed
-        ball_vel = rand_vec3(random.uniform(1000, 1800))
+        ball_vel = rand_vec3(self.rng, self.rng.uniform(1000, 1800))
+        ball_vel = self._rand_vec3(self.rng.uniform(1000, 1800))
         ball_vel[1] = -abs(ball_vel[1]) if ball_y > 0 else abs(ball_vel[1])
-        ball_vel[2] = random.uniform(-200, 200)
+        ball_vel[2] = self.rng.uniform(-200, 200)
         state_wrapper.ball.set_lin_vel(*ball_vel)
         
         # Place cars for double tap setup
@@ -311,14 +334,16 @@ class ModernStateSetter:
     def _flip_reset_setup_scenario(self, state_wrapper: StateWrapper):
         """Flip reset setup scenario."""
         # Ball high, moving toward ceiling
-        ball_x = random.uniform(-1000, 1000)
-        ball_y = random.uniform(-2000, 2000)
-        ball_z = random.uniform(1000, 1800)
+        ball_x = self.rng.uniform(-1000, 1000)
+        ball_y = self.rng.uniform(-2000, 2000)
+        ball_z = self.rng.uniform(1000, 1800)
         state_wrapper.ball.set_pos(x=ball_x, y=ball_y, z=ball_z)
         
         # Ball moving upward
-        ball_vel = rand_vec3(random.uniform(400, 800))
-        ball_vel[2] = random.uniform(200, 600)  # Upward
+        ball_vel = rand_vec3(self.rng, self.rng.uniform(400, 800))
+
+        ball_vel = self._rand_vec3(self.rng.uniform(400, 800))
+        ball_vel[2] = self.rng.uniform(200, 600)  # Upward
         state_wrapper.ball.set_lin_vel(*ball_vel)
         
         # Place cars with boost for flip reset
@@ -328,14 +353,16 @@ class ModernStateSetter:
     def _ceiling_pinch_scenario(self, state_wrapper: StateWrapper):
         """Ceiling pinch scenario."""
         # Ball near ceiling
-        ball_x = random.uniform(-2000, 2000)
-        ball_y = random.uniform(-3000, 3000)
-        ball_z = random.uniform(CEILING_Z - 200, CEILING_Z - 50)
+        ball_x = self.rng.uniform(-2000, 2000)
+        ball_y = self.rng.uniform(-3000, 3000)
+        ball_z = self.rng.uniform(CEILING_Z - 200, CEILING_Z - 50)
         state_wrapper.ball.set_pos(x=ball_x, y=ball_y, z=ball_z)
         
         # Ball moving along ceiling
-        ball_vel = rand_vec3(random.uniform(600, 1200))
-        ball_vel[2] = random.uniform(-100, 100)  # Small vertical component
+        ball_vel = rand_vec3(self.rng, self.rng.uniform(600, 1200))
+
+        ball_vel = self._rand_vec3(self.rng.uniform(600, 1200))
+        ball_vel[2] = self.rng.uniform(-100, 100)  # Small vertical component
         state_wrapper.ball.set_lin_vel(*ball_vel)
         
         # Place cars for ceiling play
@@ -344,14 +371,15 @@ class ModernStateSetter:
     def _defensive_clear_scenario(self, state_wrapper: StateWrapper):
         """Defensive clear scenario."""
         # Ball in defensive half
-        ball_x = random.uniform(-3000, 3000)
-        ball_y = random.uniform(-5000, -2000) if random.random() > 0.5 else random.uniform(2000, 5000)
-        ball_z = random.uniform(100, 600)
+        ball_x = self.rng.uniform(-3000, 3000)
+        ball_y = self.rng.uniform(-5000, -2000) if self.rng.random() > 0.5 else self.rng.uniform(2000, 5000)
+        ball_z = self.rng.uniform(100, 600)
         state_wrapper.ball.set_pos(x=ball_x, y=ball_y, z=ball_z)
         
         # Ball moving toward goal
         goal_direction = 1 if ball_y < 0 else -1
-        ball_vel = rand_vec3(random.uniform(800, 1500))
+        ball_vel = rand_vec3(self.rng, self.rng.uniform(800, 1500))
+        ball_vel = self._rand_vec3(self.rng.uniform(800, 1500))
         ball_vel[1] = goal_direction * abs(ball_vel[1])
         state_wrapper.ball.set_lin_vel(*ball_vel)
         
@@ -367,13 +395,13 @@ class ModernStateSetter:
         # Place cars with low boost
         for i, car in enumerate(state_wrapper.cars):
             # Place cars away from ball
-            car_x = random.uniform(-3000, 3000)
-            car_y = random.uniform(-4000, 4000)
+            car_x = self.rng.uniform(-3000, 3000)
+            car_y = self.rng.uniform(-4000, 4000)
             car.set_pos(x=car_x, y=car_y, z=BALL_RADIUS)
             car.set_lin_vel(0, 0, 0)
             car.set_rot(pitch=0, yaw=0, roll=0)
             car.set_ang_vel(0, 0, 0)
-            car.boost = random.uniform(0, 30)  # Low boost
+            car.boost = self.rng.uniform(0, 30)  # Low boost
     
     def _place_cars_near_ball(self, state_wrapper: StateWrapper, max_distance: float = 1000):
         """Place cars near the ball."""
@@ -381,8 +409,8 @@ class ModernStateSetter:
         
         for i, car in enumerate(state_wrapper.cars):
             # Place car within max_distance of ball
-            angle = random.uniform(0, 2 * np.pi)
-            distance = random.uniform(200, max_distance)
+            angle = self.rng.uniform(0, 2 * np.pi)
+            distance = self.rng.uniform(200, max_distance)
             
             car_x = ball_pos[0] + distance * np.cos(angle)
             car_y = ball_pos[1] + distance * np.sin(angle)
@@ -394,9 +422,9 @@ class ModernStateSetter:
             
             car.set_pos(x=car_x, y=car_y, z=car_z)
             car.set_lin_vel(0, 0, 0)
-            car.set_rot(pitch=0, yaw=random.uniform(-np.pi, np.pi), roll=0)
+            car.set_rot(pitch=0, yaw=self.rng.uniform(-np.pi, np.pi), roll=0)
             car.set_ang_vel(0, 0, 0)
-            car.boost = random.uniform(0, 100)
+            car.boost = self.rng.uniform(0, 100)
     
     def _place_cars_for_wall_intercept(self, state_wrapper: StateWrapper, wall_side: str):
         """Place cars for wall intercept."""
@@ -405,23 +433,23 @@ class ModernStateSetter:
         for i, car in enumerate(state_wrapper.cars):
             if wall_side == 'left':
                 # Place cars to intercept left wall bounce
-                car_x = random.uniform(2000, 3500)
-                car_y = ball_pos[1] + random.uniform(-800, 800)
+                car_x = self.rng.uniform(2000, 3500)
+                car_y = ball_pos[1] + self.rng.uniform(-800, 800)
             elif wall_side == 'right':
                 # Place cars to intercept right wall bounce
-                car_x = random.uniform(-3500, -2000)
-                car_y = ball_pos[1] + random.uniform(-800, 800)
+                car_x = self.rng.uniform(-3500, -2000)
+                car_y = ball_pos[1] + self.rng.uniform(-800, 800)
             else:  # back
                 # Place cars to intercept back wall bounce
-                car_x = ball_pos[0] + random.uniform(-800, 800)
-                car_y = random.uniform(3000, 4500) if ball_pos[1] > 0 else random.uniform(-4500, -3000)
+                car_x = ball_pos[0] + self.rng.uniform(-800, 800)
+                car_y = self.rng.uniform(3000, 4500) if ball_pos[1] > 0 else self.rng.uniform(-4500, -3000)
             
             car_z = BALL_RADIUS
             car.set_pos(x=car_x, y=car_y, z=car_z)
             car.set_lin_vel(0, 0, 0)
-            car.set_rot(pitch=0, yaw=random.uniform(-np.pi, np.pi), roll=0)
+            car.set_rot(pitch=0, yaw=self.rng.uniform(-np.pi, np.pi), roll=0)
             car.set_ang_vel(0, 0, 0)
-            car.boost = random.uniform(50, 100)
+            car.boost = self.rng.uniform(50, 100)
     
     def _place_cars_for_backboard_clear(self, state_wrapper: StateWrapper):
         """Place cars for backboard clear."""
@@ -429,15 +457,15 @@ class ModernStateSetter:
         
         for i, car in enumerate(state_wrapper.cars):
             # Place cars in front of backboard
-            car_x = ball_pos[0] + random.uniform(-1000, 1000)
-            car_y = ball_pos[1] + random.uniform(-800, 800)
+            car_x = ball_pos[0] + self.rng.uniform(-1000, 1000)
+            car_y = ball_pos[1] + self.rng.uniform(-800, 800)
             car_z = BALL_RADIUS
             
             car.set_pos(x=car_x, y=car_y, z=car_z)
             car.set_lin_vel(0, 0, 0)
-            car.set_rot(pitch=0, yaw=random.uniform(-np.pi, np.pi), roll=0)
+            car.set_rot(pitch=0, yaw=self.rng.uniform(-np.pi, np.pi), roll=0)
             car.set_ang_vel(0, 0, 0)
-            car.boost = random.uniform(60, 100)
+            car.boost = self.rng.uniform(60, 100)
     
     def _place_cars_for_double_tap(self, state_wrapper: StateWrapper):
         """Place cars for double tap setup."""
@@ -445,15 +473,15 @@ class ModernStateSetter:
         
         for i, car in enumerate(state_wrapper.cars):
             # Place cars to follow ball trajectory
-            car_x = ball_pos[0] + random.uniform(-1200, 1200)
-            car_y = ball_pos[1] + random.uniform(-1000, 1000)
+            car_x = ball_pos[0] + self.rng.uniform(-1200, 1200)
+            car_y = ball_pos[1] + self.rng.uniform(-1000, 1000)
             car_z = BALL_RADIUS
             
             car.set_pos(x=car_x, y=car_y, z=car_z)
             car.set_lin_vel(0, 0, 0)
-            car.set_rot(pitch=0, yaw=random.uniform(-np.pi, np.pi), roll=0)
+            car.set_rot(pitch=0, yaw=self.rng.uniform(-np.pi, np.pi), roll=0)
             car.set_ang_vel(0, 0, 0)
-            car.boost = random.uniform(70, 100)
+            car.boost = self.rng.uniform(70, 100)
     
     def _place_cars_for_ceiling_play(self, state_wrapper: StateWrapper):
         """Place cars for ceiling play."""
@@ -461,15 +489,15 @@ class ModernStateSetter:
         
         for i, car in enumerate(state_wrapper.cars):
             # Place cars below ball
-            car_x = ball_pos[0] + random.uniform(-1000, 1000)
-            car_y = ball_pos[1] + random.uniform(-1000, 1000)
-            car_z = random.uniform(BALL_RADIUS, ball_pos[2] - 200)
+            car_x = ball_pos[0] + self.rng.uniform(-1000, 1000)
+            car_y = ball_pos[1] + self.rng.uniform(-1000, 1000)
+            car_z = self.rng.uniform(BALL_RADIUS, ball_pos[2] - 200)
             
             car.set_pos(x=car_x, y=car_y, z=car_z)
             car.set_lin_vel(0, 0, 0)
-            car.set_rot(pitch=0, yaw=random.uniform(-np.pi, np.pi), roll=0)
+            car.set_rot(pitch=0, yaw=self.rng.uniform(-np.pi, np.pi), roll=0)
             car.set_ang_vel(0, 0, 0)
-            car.boost = random.uniform(80, 100)
+            car.boost = self.rng.uniform(80, 100)
     
     def _place_cars_for_defensive_clear(self, state_wrapper: StateWrapper):
         """Place cars for defensive clear."""
@@ -477,23 +505,23 @@ class ModernStateSetter:
         
         for i, car in enumerate(state_wrapper.cars):
             # Place cars in defensive positions
-            car_x = ball_pos[0] + random.uniform(-1500, 1500)
-            car_y = ball_pos[1] + random.uniform(-1200, 1200)
+            car_x = ball_pos[0] + self.rng.uniform(-1500, 1500)
+            car_y = ball_pos[1] + self.rng.uniform(-1200, 1200)
             car_z = BALL_RADIUS
             
             car.set_pos(x=car_x, y=car_y, z=car_z)
             car.set_lin_vel(0, 0, 0)
-            car.set_rot(pitch=0, yaw=random.uniform(-np.pi, np.pi), roll=0)
+            car.set_rot(pitch=0, yaw=self.rng.uniform(-np.pi, np.pi), roll=0)
             car.set_ang_vel(0, 0, 0)
-            car.boost = random.uniform(40, 100)
+            car.boost = self.rng.uniform(40, 100)
     
     def _give_boost_to_cars(self, state_wrapper: StateWrapper, boost_prob: float = 0.5):
         """Give boost to cars with given probability."""
         for car in state_wrapper.cars:
-            if random.random() < boost_prob:
-                car.boost = random.uniform(50, 100)
+            if self.rng.random() < boost_prob:
+                car.boost = self.rng.uniform(50, 100)
             else:
-                car.boost = random.uniform(0, 50)
+                car.boost = self.rng.uniform(0, 50)
 
 # Backwards compatibility
 SSLStateSetter = ModernStateSetter

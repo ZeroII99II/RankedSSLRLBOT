@@ -33,6 +33,10 @@ scripts/run_rlbot_local.bat  # or .sh on Linux/Mac
 ### 5) Run Tests
 
 ```bash
+# Run the PPO trainer smoke tests
+pytest tests/test_real_env_smoke.py
+
+# Run the full suite
 pytest
 ```
 
@@ -52,6 +56,7 @@ python src/inference/export.py --sb3 --ckpt models/checkpoints/best_sb3.zip --ou
 - [Training](#training)
 - [Export & Inference](#export--inference)
 - [RLBot Integration](#rlbot-integration)
+- [Streaming](#streaming)
 - [Configuration](#configuration)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
@@ -396,6 +401,10 @@ curriculum_phase = "ssl"
 use_gpu = false
 max_inference_time = 0.01
 ```
+
+## Streaming
+
+See [docs/streaming.md](docs/streaming.md) for instructions on continuous training, displaying the policy in Rocket League, and broadcasting matches to Twitch.
 
 ## ⚙️ Configuration
 

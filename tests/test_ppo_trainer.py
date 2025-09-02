@@ -89,6 +89,22 @@ class DummyEnv:
         return obs, reward, done, info
 
 
+class NonTerminatingEnv:
+    def __init__(self):
+        self.step_count = 0
+
+    def reset(self):
+        return np.zeros(107, dtype=np.float32), {}
+
+    def step(self, action):
+        self.step_count += 1
+        obs = np.zeros(107, dtype=np.float32)
+        reward = 0.0
+        done = False
+        info = {}
+        return obs, reward, done, info
+
+
 class DummyCurriculum:
     def __init__(self, *args, **kwargs):
         pass
@@ -188,3 +204,46 @@ def test_collect_one_step(monkeypatch):
     assert set(['policy_loss', 'value_loss', 'entropy_loss']).issubset(losses)
     for value in losses.values():
         assert np.isfinite(value)
+
+
+def test_collect_rollout_without_done(monkeypatch):
+    import torch
+
+    class DummyPolicy(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear = torch.nn.Linear(107, 8)
+
+        def sample_actions(self, obs, generator=None):
+            logits = self.linear(obs)
+            return {
+                'continuous_actions': torch.tanh(logits[:, :5]),
+                'discrete_actions': torch.sigmoid(logits[:, 5:])
+            }
+
+        def log_prob(self, obs, actions):
+            return torch.zeros(obs.shape[0])
+
+        def entropy(self, obs):
+            return torch.zeros(obs.shape[0])
+
+    class DummyCritic(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear = torch.nn.Linear(107, 1)
+
+        def forward(self, obs):
+            return self.linear(obs)
+
+    # Patch curriculum, environment, and networks
+    monkeypatch.setattr('src.training.train.CurriculumManager', DummyCurriculum)
+    monkeypatch.setattr(PPOTrainer, '_load_config', lambda self, path: minimal_config())
+    monkeypatch.setattr(PPOTrainer, '_create_environment', lambda self: NonTerminatingEnv())
+    monkeypatch.setattr('src.training.train.create_ssl_policy', lambda cfg: DummyPolicy())
+    monkeypatch.setattr('src.training.train.create_ssl_critic', lambda cfg: DummyCritic())
+
+    trainer = PPOTrainer('cfg', 'curr')
+    rollouts = trainer._collect_rollouts(2)
+
+    assert rollouts['episode_rewards'] == [0.0]
+    assert rollouts['episode_lengths'] == [2]
