@@ -3,9 +3,11 @@ from __future__ import annotations
 """Environment factory providing a minimal Rocket League style gym env.
 
 This module wires the project's SSL observation builder and reward function
-into a lightweight environment.  The environment does **not** rely on the
-heavy RocketSim engine used in production; instead it uses simple physics
-based on the compatibility dataclasses in ``src.compat.rlgym_v2_compat``.
+into a lightweight environment.  It now relies on the real RLGym v2
+simulation classes and RocketSim based transition engine instead of the
+lightweight compatibility dataclasses that previously lived under
+``src.compat``.  Only a tiny wrapper is kept to expose the attributes that
+our observation builder and reward function expect.
 
 The goal of this environment is to expose the observation and reward
 implementations for testing and training loops without requiring the full
@@ -20,19 +22,110 @@ from src.utils.gym_compat import gym
 from src.rlbot_integration.observation_adapter import OBS_SIZE
 from src.training.observers import SSLObsBuilder
 from src.training.rewards import SSLRewardFunction
-from src.compat.rlgym_v2_compat.game_state import (
-    GameState,
-    PlayerData,
-    CarData,
-    BallData,
-    BoostPad,
+
+# True RLGym v2 classes and helpers
+from rlgym.rocket_league.api import GameState, Car, PhysicsObject, GameConfig
+from rlgym.rocket_league.common_values import (
+    BOOST_LOCATIONS,
+    TICKS_PER_SECOND,
 )
-from src.compat.rlgym_v2_compat import common_values
+from rlgym.rocket_league.sim.rocketsim_engine import RocketSimEngine
+from rlgym.rocket_league.done_conditions.goal_condition import GoalCondition
+from rlgym.rocket_league.done_conditions.timeout_condition import TimeoutCondition
 
 
 # Action schema: continuous and discrete controls
 CONT_DIM = 5
 DISC_DIM = 3
+
+
+class CarDataWrapper:
+    """Expose the minimal car interface expected by our builders."""
+
+    def __init__(self, car: Car):
+        self._car = car
+
+    # Positions / velocities -------------------------------------------------
+    @property
+    def position(self) -> np.ndarray:
+        return self._car.physics.position
+
+    @property
+    def linear_velocity(self) -> np.ndarray:
+        return self._car.physics.linear_velocity
+
+    @property
+    def angular_velocity(self) -> np.ndarray:
+        return self._car.physics.angular_velocity
+
+    # Orientation helpers ----------------------------------------------------
+    def forward(self) -> np.ndarray:
+        return self._car.physics.forward
+
+    def up(self) -> np.ndarray:
+        return self._car.physics.up
+
+    # Pitch/Yaw/Roll ---------------------------------------------------------
+    @property
+    def pitch(self) -> float:
+        return float(self._car.physics.pitch)
+
+    @property
+    def yaw(self) -> float:
+        return float(self._car.physics.yaw)
+
+    @property
+    def roll(self) -> float:
+        return float(self._car.physics.roll)
+
+
+class PlayerWrapper:
+    """Minimal player wrapper backed by a RLGym ``Car`` instance."""
+
+    def __init__(self, car: Car):
+        self.car_data = CarDataWrapper(car)
+        self.team_num = car.team_num
+        self.boost_amount = float(car.boost_amount)
+        self.on_ground = car.on_ground
+        self.has_flip = car.has_flip
+        # ``has_jump`` in legacy dataclasses corresponds to ``not has_jumped``
+        self.has_jump = not car.has_jumped
+        self.ball_touched = car.ball_touches > 0
+        self.is_demoed = car.is_demoed
+        self.match_demolishes = 0
+
+
+class BallDataWrapper:
+    def __init__(self, phys: PhysicsObject):
+        self.position = phys.position
+        self.linear_velocity = phys.linear_velocity
+
+
+class BoostPadWrapper:
+    def __init__(self, pos: np.ndarray, timer: float):
+        self.position = pos.astype(np.float32)
+        self.is_active = timer <= 0
+
+
+class GameStateWrapper:
+    """Compatibility view over the RLGym ``GameState``."""
+
+    def __init__(self, state: GameState):
+        self.ball = BallDataWrapper(state.ball)
+        # Ensure deterministic ordering of players
+        self.players = [PlayerWrapper(state.cars[i]) for i in sorted(state.cars.keys())]
+        self.boost_pads = [
+            BoostPadWrapper(np.array(loc), state.boost_pad_timers[i])
+            for i, loc in enumerate(BOOST_LOCATIONS)
+        ]
+        # Dummy scoreboard / timing information
+        self.blue_score = 0
+        self.orange_score = 0
+        self.game_seconds_remaining = max(
+            0.0, 300.0 - state.tick_count / TICKS_PER_SECOND
+        )
+        self.is_overtime = False
+        self.is_kickoff_pause = False
 
 
 class RL2v2Env(gym.Env):
@@ -62,35 +155,75 @@ class RL2v2Env(gym.Env):
         self._obs_builder = SSLObsBuilder()
         self._reward_fn = SSLRewardFunction()
 
-        self._state: GameState | None = None
+        # RLGym engine and done conditions
+        self._engine = RocketSimEngine(rlbot_delay=False)
+        self._termination_cond = GoalCondition()
+        # Short timeout keeps unit tests fast while still exercising truncation logic
+        self._truncation_cond = TimeoutCondition(5.0)
+
+        self._state: GameState | None = None  # raw RLGym state
         self._prev_action = np.zeros(CONT_DIM + DISC_DIM, dtype=np.float32)
 
     # ------------------------------------------------------------------
     # State helpers
     def _random_state(self) -> GameState:
-        """Create a randomly-initialised 2v2 game state."""
-        players = []
+        """Create a randomly-initialised 2v2 RLGym ``GameState``."""
+
+        gs = self._engine.create_base_state()
+        gs.tick_count = 0
+        gs.goal_scored = False
+
+        # Random ball
+        ball = PhysicsObject()
+        ball.position = self.np_random.uniform(-1000, 1000, size=3).astype(np.float32)
+        ball.linear_velocity = self.np_random.uniform(-500, 500, size=3).astype(np.float32)
+        ball.angular_velocity = self.np_random.uniform(-5, 5, size=3).astype(np.float32)
+        ball.euler_angles = self.np_random.uniform(-np.pi, np.pi, size=3).astype(np.float32)
+        gs.ball = ball
+
+        # Random cars
+        gs.cars = {}
         for i in range(4):
             team = 0 if i < 2 else 1
-            car = CarData(team_num=team)
-            car.set_pos(*self.np_random.uniform(-1000, 1000, size=3))
-            car.set_lin_vel(*self.np_random.uniform(-500, 500, size=3))
-            car.set_ang_vel(*self.np_random.uniform(-5, 5, size=3))
-            car.set_rot(*self.np_random.uniform(-np.pi, np.pi, size=3))
-            player = PlayerData(
-                car_data=car,
-                team_num=team,
-                boost_amount=float(self.np_random.uniform(0, 100)),
-            )
-            players.append(player)
+            car = Car()
+            car.team_num = team
+            car.hitbox_type = 0
+            car.ball_touches = 0
+            car.bump_victim_id = None
+            car.demo_respawn_timer = 0.0
+            car.wheels_with_contact = (True, True, True, True)
+            car.supersonic_time = 0.0
+            car.boost_amount = float(self.np_random.uniform(0, 100))
+            car.boost_active_time = 0.0
+            car.handbrake = 0.0
+            car.is_jumping = False
+            car.has_jumped = False
+            car.is_holding_jump = False
+            car.jump_time = 0.0
+            car.has_flipped = False
+            car.has_double_jumped = False
+            car.air_time_since_jump = 0.0
+            car.flip_time = 0.0
+            car.flip_torque = np.zeros(3, dtype=np.float32)
+            car.is_autoflipping = False
+            car.autoflip_timer = 0.0
+            car.autoflip_direction = 1.0
+            phys = PhysicsObject()
+            phys.position = self.np_random.uniform(-1000, 1000, size=3).astype(np.float32)
+            phys.linear_velocity = self.np_random.uniform(-500, 500, size=3).astype(np.float32)
+            phys.angular_velocity = self.np_random.uniform(-5, 5, size=3).astype(np.float32)
+            phys.euler_angles = self.np_random.uniform(-np.pi, np.pi, size=3).astype(np.float32)
+            car.physics = phys
+            gs.cars[i] = car
 
-        ball = BallData()
-        ball.set_pos(*self.np_random.uniform(-1000, 1000, size=3))
-        ball.set_lin_vel(*self.np_random.uniform(-500, 500, size=3))
+        gs.boost_pad_timers = np.zeros(len(BOOST_LOCATIONS), dtype=np.float32)
 
-        pads = [BoostPad(position=loc.astype(np.float32)) for loc in common_values.BOOST_LOCATIONS]
+        gs.config = GameConfig()
+        gs.config.gravity = 1
+        gs.config.boost_consumption = 1
+        gs.config.dodge_deadzone = 0.5
 
-        return GameState(ball=ball, players=players, boost_pads=pads)
+        return gs
 
     # ------------------------------------------------------------------
     # Gym API
@@ -101,12 +234,17 @@ class RL2v2Env(gym.Env):
             self.np_random, _ = gym.utils.seeding.np_random(seed)
 
         self._state = self._random_state()
-        self._obs_builder.reset(self._state)
-        self._reward_fn.reset(self._state)
+        self._engine.set_state(self._state, {})
+
+        wrapper = GameStateWrapper(self._state)
+        self._obs_builder.reset(wrapper)
+        self._reward_fn.reset(wrapper)
+        self._termination_cond.reset(self._engine.agents, self._state, {})
+        self._truncation_cond.reset(self._engine.agents, self._state, {})
         self._prev_action.fill(0.0)
 
         obs = self._obs_builder.build_obs(
-            self._state.players[0], self._state, self._prev_action
+            wrapper.players[0], wrapper, self._prev_action
         )
         return obs.astype(np.float32), {}
 
@@ -118,25 +256,36 @@ class RL2v2Env(gym.Env):
         a_disc = action["disc"].astype(np.float32).clip(0, 1)
         self._prev_action = np.concatenate([a_cont, a_disc])
 
-        # Basic kinematics for controlled player (index 0)
-        car = self._state.players[0].car_data
-        car.set_lin_vel(
-            a_cont[0] * common_values.CAR_MAX_SPEED,
-            a_cont[1] * common_values.CAR_MAX_SPEED,
-            a_cont[2] * common_values.CAR_MAX_SPEED,
-        )
-        car.position += car.linear_velocity * 0.016  # small time step
+        engine_action = np.concatenate([a_cont, a_disc]).reshape(1, -1)
+        actions = {
+            aid: np.zeros_like(engine_action) for aid in self._engine.agents
+        }
+        actions[self._engine.agents[0]] = engine_action
 
-        # Drift ball slightly to keep observations dynamic
-        self._state.ball.position += self._state.ball.linear_velocity * 0.016
+        self._state = self._engine.step(actions, {})
+        wrapper = GameStateWrapper(self._state)
 
         obs = self._obs_builder.build_obs(
-            self._state.players[0], self._state, self._prev_action
+            wrapper.players[0], wrapper, self._prev_action
         )
         reward = self._reward_fn.get_reward(
-            self._state.players[0], self._state, self._prev_action
+            wrapper.players[0], wrapper, self._prev_action
         )
-        return obs.astype(np.float32), float(reward), False, False, {}
+
+        terminated = self._termination_cond.is_done(
+            self._engine.agents, self._state, {}
+        )[self._engine.agents[0]]
+        truncated = self._truncation_cond.is_done(
+            self._engine.agents, self._state, {}
+        )[self._engine.agents[0]]
+
+        return (
+            obs.astype(np.float32),
+            float(reward),
+            bool(terminated),
+            bool(truncated),
+            {},
+        )
 
 
 def make_env(seed: int = 42) -> Callable[[], RL2v2Env]:
