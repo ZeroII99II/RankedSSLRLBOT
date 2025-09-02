@@ -33,6 +33,10 @@ scripts/run_rlbot_local.bat  # or .sh on Linux/Mac
 ### 5) Run Tests
 
 ```bash
+# Run the PPO trainer smoke tests
+pytest tests/test_real_env_smoke.py
+
+# Run the full suite
 pytest
 ```
 
