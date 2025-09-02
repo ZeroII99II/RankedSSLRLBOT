@@ -143,6 +143,7 @@ class GameStateWrapper:
 class RL2v2Env(gym.Env):
     """Small 2v2 Rocket League environment using project builders."""
 
+
     # ``gym.Env`` expects ``metadata['render_modes']`` to advertise the
     # available render modes.  We support RGB array rendering for the training
     # script as well as a human mode for interactive viewing.
@@ -151,6 +152,10 @@ class RL2v2Env(gym.Env):
     def __init__(
         self,
         seed: int = 42,
+        render: bool = False,
+        num_players_per_team: int = 2,
+    ):
+
         num_players_per_team: int = 2,
         render: bool = False,
     ):
@@ -166,6 +171,7 @@ class RL2v2Env(gym.Env):
     metadata = {"render_modes": ["rgb_array", "human"], "render_fps": 60}
 
     def __init__(self, seed: int = 42, render: bool = False):
+ 
  
         super().__init__()
 
@@ -219,6 +225,8 @@ class RL2v2Env(gym.Env):
         return {str(k): float(v) for k, v in data.items() if k in self._scenario_funcs}
 
     def _random_state(self) -> GameState:
+        """Create a randomly-initialised 2v2 RLGym ``GameState``."""
+
         """Create a ``GameState`` from the configured scenarios.
 
         The environment samples a scenario based on the configured weights. If
@@ -293,7 +301,20 @@ class RL2v2Env(gym.Env):
             car.is_autoflipping = False
             car.autoflip_timer = 0.0
             car.autoflip_direction = 1.0
+            car.on_ground = True
+            car.has_flip = True
+            car.is_demoed = False
             phys = PhysicsObject()
+            phys.position = self.np_random.uniform(-1000, 1000, size=3).astype(np.float32)
+            phys.linear_velocity = self.np_random.uniform(-500, 500, size=3).astype(np.float32)
+            phys.angular_velocity = self.np_random.uniform(-5, 5, size=3).astype(np.float32)
+            phys.euler_angles = self.np_random.uniform(-np.pi, np.pi, size=3).astype(np.float32)
+            phys.forward = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+            phys.up = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+            phys.pitch = 0.0
+            phys.yaw = 0.0
+            phys.roll = 0.0
+
             phys.position = self.np_random.uniform(-1000, 1000, size=3).astype(
                 np.float32
             )

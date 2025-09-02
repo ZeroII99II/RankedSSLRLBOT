@@ -1,9 +1,12 @@
 import sys
-
 import types
 from pathlib import Path
-
 import numpy as np
+import pytest
+
+
+# ---------------------------------------------------------------------------
+# Stub minimal rlgym modules expected by env_factory
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
@@ -20,14 +23,25 @@ def test_reset_returns_obs_vec():
 # ---------------------------------------------------------------------------
 rlgym_mod = types.ModuleType("rlgym")
 
+
+
 api_cfg_mod = types.ModuleType("rlgym.api.config")
 class ObsBuilder: ...
+
+
 class RewardFunction: ...
 api_cfg_mod.ObsBuilder = ObsBuilder
 api_cfg_mod.RewardFunction = RewardFunction
 sys.modules["rlgym.api"] = types.ModuleType("rlgym.api")
 sys.modules["rlgym.api.config"] = api_cfg_mod
 
+
+config_mod.ObsBuilder = ObsBuilder
+config_mod.RewardFunction = RewardFunction
+api_mod.config = config_mod
+rlgym_mod.api = api_mod
+
+rocket_mod = types.ModuleType("rlgym.rocket_league")
 common_values_mod = types.ModuleType("rlgym.rocket_league.common_values")
 common_values_mod.BOOST_LOCATIONS = np.zeros((1, 3), dtype=np.float32)
 common_values_mod.TICKS_PER_SECOND = 60
@@ -44,6 +58,9 @@ common_values_mod.ORANGE_GOAL_BACK = np.zeros(3)
 common_values_mod.ORANGE_GOAL_CENTER = np.zeros(3)
 common_values_mod.GOAL_HEIGHT = 0
 common_values_mod.ORANGE_TEAM = 1
+common_values_mod.TICKS_PER_SECOND = 60
+rocket_mod.common_values = common_values_mod
+
 
 
 class PhysicsObject:
@@ -134,6 +151,94 @@ class TimeoutCondition:
         return {agents[0]: False}
 
 
+# API types -----------------------------------------------------------------
+api_rl_mod = types.ModuleType("rlgym.rocket_league.api")
+
+
+class GameState: ...
+
+
+class Car: ...
+
+
+class PhysicsObject: ...
+
+
+class GameConfig: ...
+
+
+api_rl_mod.GameState = GameState
+api_rl_mod.Car = Car
+api_rl_mod.PhysicsObject = PhysicsObject
+api_rl_mod.GameConfig = GameConfig
+
+# Engine --------------------------------------------------------------------
+sim_mod = types.ModuleType("rlgym.rocket_league.sim.rocketsim_engine")
+
+
+class RocketSimEngine:
+    def __init__(self, rlbot_delay: bool = False):
+        self.agents = [0]
+        self.state = None
+
+    def create_base_state(self):
+        gs = GameState()
+        gs.ball = PhysicsObject()
+        gs.cars = {}
+        gs.boost_pad_timers = np.zeros(
+            len(common_values_mod.BOOST_LOCATIONS), dtype=np.float32
+        )
+        gs.config = GameConfig()
+        gs.tick_count = 0
+        gs.goal_scored = False
+        return gs
+
+    def set_state(self, state, info):
+        self.state = state
+
+    def step(self, actions, info):
+        self.state.tick_count += 1
+        return self.state
+
+
+sim_mod.RocketSimEngine = RocketSimEngine
+
+# Done conditions ------------------------------------------------------------
+goal_mod = types.ModuleType("rlgym.rocket_league.done_conditions.goal_condition")
+
+
+class GoalCondition:
+    def reset(self, agents, state, info):
+        pass
+
+    def is_done(self, agents, state, info):
+        return {a: False for a in agents}
+
+
+goal_mod.GoalCondition = GoalCondition
+
+timeout_mod = types.ModuleType(
+    "rlgym.rocket_league.done_conditions.timeout_condition"
+)
+
+
+class TimeoutCondition:
+    def __init__(self, timeout: int = 500):
+        self.timeout = timeout
+        self.count = 0
+
+    def reset(self, agents, state, info):
+        self.count = 0
+
+    def is_done(self, agents, state, info):
+        self.count += 1
+        done = self.count >= self.timeout
+        return {a: done for a in agents}
+
+
+timeout_mod.TimeoutCondition = TimeoutCondition
+
+# Register stub modules ------------------------------------------------------
 sys.modules["rlgym"] = rlgym_mod
 sys.modules["rlgym.rocket_league.api"] = types.ModuleType("rlgym.rocket_league.api")
 sys.modules["rlgym.rocket_league.api"].GameState = GameState
@@ -141,6 +246,17 @@ sys.modules["rlgym.rocket_league.api"].Car = Car
 sys.modules["rlgym.rocket_league.api"].PhysicsObject = PhysicsObject
 sys.modules["rlgym.rocket_league.api"].GameConfig = GameConfig
 sys.modules["rlgym.rocket_league.common_values"] = common_values_mod
+sys.modules["rlgym.rocket_league.api"] = api_rl_mod
+sys.modules["rlgym.rocket_league.sim.rocketsim_engine"] = sim_mod
+sys.modules["rlgym.rocket_league.done_conditions.goal_condition"] = goal_mod
+sys.modules[
+    "rlgym.rocket_league.done_conditions.timeout_condition"
+] = timeout_mod
+
+
+# ---------------------------------------------------------------------------
+# Import environment factory with stubs in place
+
 sys.modules["rlgym.rocket_league.sim.rocketsim_engine"] = types.ModuleType(
     "rlgym.rocket_league.sim.rocketsim_engine"
 )
@@ -159,6 +275,43 @@ sys.modules["rlgym.rocket_league.done_conditions.timeout_condition"].TimeoutCond
 # ---------------------------------------------------------------------------
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 import importlib
+
+import src.training.observers as observers
+import src.training.rewards as rewards
+
+importlib.reload(observers)
+importlib.reload(rewards)
+env_factory = importlib.reload(importlib.import_module("src.training.env_factory"))
+
+RL2v2Env = env_factory.RL2v2Env
+CONT_DIM = env_factory.CONT_DIM
+DISC_DIM = env_factory.DISC_DIM
+
+from src.rlbot_integration.observation_adapter import OBS_SIZE
+from rlgym.api.config import ObsBuilder, RewardFunction
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def env():
+    return RL2v2Env()
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+def test_reset_returns_obs_vec(env):
+    obs, info = env.reset()
+    assert isinstance(obs, np.ndarray)
+    assert obs.shape == (OBS_SIZE,)
+    assert issubclass(obs.dtype.type, np.floating)
+    assert isinstance(env._obs_builder, ObsBuilder)
+    assert isinstance(env._reward_fn, RewardFunction)
+
+
+def test_step_produces_finite_reward(env):
 
 env_factory = importlib.reload(importlib.import_module("src.training.env_factory"))
 RL2v2Env = env_factory.RL2v2Env
@@ -184,6 +337,12 @@ def test_step_produces_float_reward():
     }
     obs, reward, terminated, truncated, info = env.step(action)
     assert isinstance(obs, np.ndarray)
+    assert obs.shape == (OBS_SIZE,)
+    assert np.isfinite(reward)
+    assert isinstance(reward, float)
+    assert isinstance(terminated, bool)
+    assert isinstance(truncated, bool)
+
     assert obs.shape == env.observation_space.shape
     assert isinstance(reward, float)
 
