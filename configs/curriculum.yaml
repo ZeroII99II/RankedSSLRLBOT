@@ -1,6 +1,6 @@
 phases:
   bronze:
-    description: "Entry phase focusing on basic skills"
+    description: Entry phase focusing on basic skills
     reward_weights:
       ball_to_goal: 1.0
       touch_quality: 0.2
@@ -24,7 +24,7 @@ phases:
       win_rate: 0.5
 
   gold:
-    description: "Intermediate phase introducing positioning and aerials"
+    description: Intermediate phase introducing positioning and aerials
     reward_weights:
       ball_to_goal: 1.0
       touch_quality: 0.4
