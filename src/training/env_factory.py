@@ -1,6 +1,13 @@
-from __future__ import annotations
+"""Environment factory for training agents.
 
-"""Factory for constructing a minimal RLGym session."""
+This module exposes a thin Gym-compatible wrapper around the new
+`rlgym.rocket_league` API and a helper :func:`make_env` for constructing
+seeded instances of that environment.  The observation space is fixed at
+107 dimensions and the action space is split into 5 continuous controls and
+3 discrete binary actions as expected by the rest of the project.
+"""
+
+from __future__ import annotations
 
 from typing import Callable, Dict
 
@@ -17,18 +24,41 @@ from rlgym.rocket_league.sim.rocketsim_engine import RocketSimEngine
 from rlgym.rocket_league.done_conditions.goal_condition import GoalCondition
 from rlgym.rocket_league.done_conditions.timeout_condition import TimeoutCondition
 
-# Action schema: continuous and discrete controls
+# ---------------------------------------------------------------------------
+# Environment description
+# ---------------------------------------------------------------------------
+# Action schema: 5 continuous + 3 discrete controls
 CONT_DIM = 5
 DISC_DIM = 3
 
 
-class RLGymSession(gym.Env):
-    """Thin wrapper around :class:`rlgym.rocket_league.match.Match`."""
+class RLMatchEnv(gym.Env):
+    """Minimal Rocket League environment using :class:`rlgym`.
+
+    Parameters
+    ----------
+    seed:
+        Random seed forwarded to the underlying action space.
+    render:
+        Whether to enable rendering (currently unused but kept for parity with
+        ``RL2v2Env`` from the real project).
+    num_players_per_team:
+        Number of players per team.  Stored for reference so training code can
+        adapt behaviour based on team size.
+    """
 
     metadata = {"render_modes": []}
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        seed: int = 0,
+        render: bool = False,
+        num_players_per_team: int = 1,
+    ) -> None:
         super().__init__()
+
+        self.num_players_per_team = num_players_per_team
+
         self._obs_builder = ModernObsBuilder()
         self._reward_fn = ModernRewardSystem()
         self._state_setter = ModernStateSetter()
@@ -40,6 +70,7 @@ class RLGymSession(gym.Env):
             terminal_conditions=[GoalCondition()],
             truncation_conditions=[TimeoutCondition(5.0)],
         )
+
         self.observation_space = gym.spaces.Box(
             low=-1.0, high=1.0, shape=(OBS_SIZE,), dtype=np.float32
         )
@@ -51,9 +82,15 @@ class RLGymSession(gym.Env):
                 "disc": gym.spaces.MultiBinary(DISC_DIM),
             }
         )
+        self.action_space.seed(seed)
 
+    # ------------------------------------------------------------------
+    # Gym API
+    # ------------------------------------------------------------------
     def reset(self, *, seed: int | None = None, options: Dict | None = None):
-        """Reset the underlying match."""
+        """Reset the underlying match and return the initial observation."""
+        if seed is not None:
+            self.action_space.seed(seed)
         obs = self._match.reset()
         return obs, {}
 
@@ -63,32 +100,42 @@ class RLGymSession(gym.Env):
         return obs, float(reward), bool(terminated), bool(truncated), info
 
 
-def make_env() -> Callable[[], RLGymSession]:
-    """Return a constructor for :class:`RLGymSession`."""
+# Some tests import ``RL2v2Env`` by name.  The real project uses a class with
+# that name which is functionally equivalent to ``RLMatchEnv`` here, so we
+# provide it as an alias for compatibility.
+RL2v2Env = RLMatchEnv
 
-    def _init() -> RLGymSession:
-        return RLGymSession()
 
 def make_env(
     seed: int = 42, render: bool = False, team_size: int = 2
-) -> Callable[[], RL2v2Env]:
-    """Return a thunk that creates a seeded ``RL2v2Env`` instance.
+) -> Callable[[], RLMatchEnv]:
+    """Return a thunk creating a seeded :class:`RLMatchEnv` instance.
 
     Parameters
     ----------
-    seed
-        Random seed for the environment.
-    render
-        Whether to enable rendering for the created environment.
-    team_size
-        Number of players per team.  This is forwarded to ``RL2v2Env`` so
-        that training scripts can easily switch between 1v1 and 2v2
-        environments.
+    seed:
+        Random seed for the environment and its action space.
+    render:
+        Flag indicating whether rendering should be enabled.  Currently kept
+        for API compatibility and forwarded to ``RLMatchEnv``.
+    team_size:
+        Number of players per team; forwarded to ``RLMatchEnv`` so training
+        scripts can easily switch between 1v1 and 2v2 setups.
     """
 
-    def _thunk() -> RL2v2Env:
-        return RL2v2Env(
+    def _thunk() -> RLMatchEnv:
+        return RLMatchEnv(
             seed=seed, render=render, num_players_per_team=team_size
         )
 
-    return _init
+    return _thunk
+
+
+__all__ = [
+    "RLMatchEnv",
+    "RL2v2Env",
+    "make_env",
+    "CONT_DIM",
+    "DISC_DIM",
+]
+
