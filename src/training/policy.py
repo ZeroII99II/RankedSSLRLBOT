@@ -370,7 +370,20 @@ class SSLCritic(nn.Module):
 
 
 def create_ssl_policy(config: Dict[str, Any]) -> SSLPolicy:
-    """Create SSL policy from configuration."""
+    """Create SSL policy from configuration.
+
+    If a ``build_policy`` function is present in this module's globals, it
+    will be used to construct the policy. This allows tests to inject a tiny
+    policy for export without requiring the full model architecture.
+    """
+    build_fn = globals().pop('build_policy', None)
+    if build_fn is not None:
+        return build_fn(
+            config.get('obs_dim', 107),
+            config.get('continuous_actions', 5),
+            config.get('discrete_actions', 3),
+        )
+
     return SSLPolicy(
         obs_dim=config.get('obs_dim', 107),
         hidden_sizes=config.get('hidden_sizes', [1024, 1024, 512]),

@@ -24,9 +24,7 @@ from rich.table import Table
 from rich.panel import Panel
 
 # RLGym imports
-import rlgym
 from rlgym.utils.action_parsers import DefaultAction
-from rlgym.utils.terminal_conditions import common_conditions
 
 # Local imports
 from .observers import SSLObsBuilder
@@ -105,6 +103,9 @@ class PPOTrainer:
     
     def _create_environment(self):
         """Create RLGym environment with SSL components."""
+        import rlgym
+        from rlgym.utils.terminal_conditions import common_conditions
+
         # Create observation builder
         obs_builder = SSLObsBuilder(
             n_players=self.config['env']['team_size'] * 2,
@@ -143,7 +144,10 @@ class PPOTrainer:
     def _collect_rollouts(self, num_steps: int) -> Dict[str, torch.Tensor]:
         """Collect rollouts for PPO training."""
         obs_buffer = []
-        action_buffer = []
+        action_buffer = {
+            'continuous_actions': [],
+            'discrete_actions': []
+        }
         reward_buffer = []
         value_buffer = []
         log_prob_buffer = []
@@ -181,7 +185,12 @@ class PPOTrainer:
 
                 # Store experience
                 obs_buffer.append(obs_tensor.cpu())
-                action_buffer.append(action_outputs)
+                action_buffer['continuous_actions'].append(
+                    action_outputs['continuous_actions']
+                )
+                action_buffer['discrete_actions'].append(
+                    action_outputs['discrete_actions']
+                )
                 reward_buffer.append(torch.tensor([reward], dtype=torch.float32).to(self.device))
                 value_buffer.append(value.cpu())
                 log_prob_buffer.append(log_prob.cpu())
@@ -198,9 +207,14 @@ class PPOTrainer:
                 progress.update(task, advance=1)
         
         # Convert buffers to tensors
+        actions = {
+            'continuous_actions': torch.cat(action_buffer['continuous_actions']),
+            'discrete_actions': torch.cat(action_buffer['discrete_actions'])
+        }
+
         rollouts = {
             'observations': torch.cat(obs_buffer),
-            'actions': action_buffer,
+            'actions': actions,
             'rewards': torch.cat(reward_buffer),
             'values': torch.cat(value_buffer),
             'log_probs': torch.cat(log_prob_buffer),
@@ -228,7 +242,7 @@ class PPOTrainer:
         """Compute advantages and returns using GAE."""
         rewards = rollouts['rewards']
         values = rollouts['values']
-        dones = rollouts['dones']
+        dones = rollouts['dones'].float()
         
         gamma = self.config['ppo']['gamma']
         gae_lambda = self.config['ppo']['gae_lambda']
@@ -258,7 +272,7 @@ class PPOTrainer:
         advantages, returns = self._compute_advantages(rollouts)
         
         # Normalize advantages
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-8)
         
         # Prepare data
         obs = rollouts['observations'].to(self.device)
