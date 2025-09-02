@@ -35,12 +35,12 @@ CONT_DIM = 5
 DISC_DIM = 3
 
 
-class RL2v2Env(gym.Env):
-    """Small 2v2 Rocket League environment using project builders."""
+class RLMatchEnv(gym.Env):
+    """Small Rocket League environment with configurable team sizes."""
 
     metadata = {"render_modes": []}
 
-    def __init__(self, seed: int = 42):
+    def __init__(self, seed: int = 42, num_players_per_team: int = 2):
         super().__init__()
 
         # Observation and action spaces mirror the production setup.
@@ -64,14 +64,16 @@ class RL2v2Env(gym.Env):
 
         self._state: GameState | None = None
         self._prev_action = np.zeros(CONT_DIM + DISC_DIM, dtype=np.float32)
+        self._num_players_per_team = num_players_per_team
 
     # ------------------------------------------------------------------
     # State helpers
     def _random_state(self) -> GameState:
-        """Create a randomly-initialised 2v2 game state."""
+        """Create a randomly-initialised game state for the configured teams."""
         players = []
-        for i in range(4):
-            team = 0 if i < 2 else 1
+        total_players = 2 * self._num_players_per_team
+        for i in range(total_players):
+            team = 0 if i < self._num_players_per_team else 1
             car = CarData(team_num=team)
             car.set_pos(*self.np_random.uniform(-1000, 1000, size=3))
             car.set_lin_vel(*self.np_random.uniform(-500, 500, size=3))
@@ -139,11 +141,11 @@ class RL2v2Env(gym.Env):
         return obs.astype(np.float32), float(reward), False, False, {}
 
 
-def make_env(seed: int = 42) -> Callable[[], RL2v2Env]:
-    """Return a thunk that creates a seeded ``RL2v2Env`` instance."""
+def make_env(seed: int = 42, team_size: int = 2) -> Callable[[], RLMatchEnv]:
+    """Return a thunk that creates a seeded ``RLMatchEnv`` instance."""
 
-    def _thunk() -> RL2v2Env:
-        return RL2v2Env(seed=seed)
+    def _thunk() -> RLMatchEnv:
+        return RLMatchEnv(seed=seed, num_players_per_team=team_size)
 
     return _thunk
 
