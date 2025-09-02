@@ -15,14 +15,24 @@ from src.utils.gym_compat import gym
 Space = gym.Space
 Box = gym.spaces.Box
 
-from rlgym.api.config import ObsBuilder
-from rlgym.rocket_league.common_values import (
-    BOOST_LOCATIONS,
-    CEILING_Z,
-    BALL_RADIUS,
-    CAR_MAX_SPEED,
-)
-from rlgym.rocket_league.api import GameState
+try:  # Prefer real RLGym if available
+    from rlgym.api.config import ObsBuilder
+    from rlgym.rocket_league.common_values import (
+        BOOST_LOCATIONS,
+        CEILING_Z,
+        BALL_RADIUS,
+        CAR_MAX_SPEED,
+    )
+    from rlgym.rocket_league.api import GameState
+except Exception:  # pragma: no cover - fallback for test environment
+    from src.compat.rlgym_v2_compat.base import ObsBuilder
+    from src.compat.rlgym_v2_compat import common_values as cv
+
+    BOOST_LOCATIONS = cv.BOOST_LOCATIONS
+    CEILING_Z = cv.CEILING_Z
+    BALL_RADIUS = cv.BALL_RADIUS
+    CAR_MAX_SPEED = cv.CAR_MAX_SPEED
+    from src.compat.rlgym_v2_compat.game_state import GameState
 
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
