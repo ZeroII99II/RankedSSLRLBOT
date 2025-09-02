@@ -135,7 +135,7 @@ def test_collect_one_step(monkeypatch):
             super().__init__()
             self.linear = torch.nn.Linear(107, 8)
 
-        def sample_actions(self, obs):
+        def sample_actions(self, obs, generator=None):
             logits = self.linear(obs)
             return {
                 'continuous_actions': torch.tanh(logits[:, :5]),

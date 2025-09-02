@@ -42,13 +42,14 @@ class PPOTrainer:
     def __init__(self, config_path: str, curriculum_path: str, seed: Optional[int] = None):
         self.console = Console()
         self.config = self._load_config(config_path)
-        self.seed = seed if seed is not None else self.config.get('training', {}).get('seed', 42)
 
-        # Seed all RNGs
         training_cfg = self.config.setdefault('training', {})
         if seed is not None:
             training_cfg['seed'] = seed
         self.seed = training_cfg.get('seed', 0)
+        self.seed = training_cfg.get('seed', 42)
+
+        # Seed all RNGs
         random.seed(self.seed)
         np.random.seed(self.seed)
         torch.manual_seed(self.seed)
@@ -59,6 +60,13 @@ class PPOTrainer:
 
         # Setup device
         self.device = self._setup_device()
+
+        # Initialize RNGs
+        self.py_rng = random.Random(self.seed)
+        self.np_rng = np.random.default_rng(self.seed)
+        self.torch_rng = torch.Generator(device=self.device).manual_seed(self.seed)
+
+        self.curriculum = CurriculumManager(curriculum_path)
         
         # Initialize models
         self.policy = create_ssl_policy(self.config['policy']).to(self.device)
@@ -166,7 +174,9 @@ class PPOTrainer:
         log_prob_buffer = []
         done_buffer = []
 
-        obs, _info = reset_env(self.env)
+        obs, _info = reset_env(
+            self.env, seed=int(self.np_rng.integers(0, 2**32))
+        )
         episode_rewards = []
         episode_lengths = []
         episode_reward = 0.0
@@ -188,7 +198,9 @@ class PPOTrainer:
                 
                 # Get action from policy
                 with torch.no_grad():
-                    action_outputs = self.policy.sample_actions(obs_tensor)
+                    action_outputs = self.policy.sample_actions(
+                        obs_tensor, generator=self.torch_rng
+                    )
                     value = self.critic(obs_tensor)
                     log_prob = self.policy.log_prob(obs_tensor, action_outputs)
                 
@@ -221,7 +233,9 @@ class PPOTrainer:
                     episode_lengths.append(episode_len)
                     episode_reward = 0.0
                     episode_len = 0
-                    obs, _info = reset_env(self.env)
+                    obs, _info = reset_env(
+                        self.env, seed=int(self.np_rng.integers(0, 2**32))
+                    )
 
                 progress.update(task, advance=1)
         
@@ -310,7 +324,7 @@ class PPOTrainer:
         
         for epoch in range(n_epochs):
             # Create mini-batches
-            indices = torch.randperm(len(obs))
+            indices = torch.randperm(len(obs), generator=self.torch_rng)
             
             for start_idx in range(0, len(obs), mini_batch_size):
                 end_idx = min(start_idx + mini_batch_size, len(obs))
@@ -368,7 +382,9 @@ class PPOTrainer:
         eval_rewards = []
         eval_lengths = []
         
-        obs, _info = reset_env(self.env)
+        obs, _info = reset_env(
+            self.env, seed=int(self.np_rng.integers(0, 2**32))
+        )
 
         for episode in range(num_episodes):
             episode_reward = 0
@@ -379,7 +395,9 @@ class PPOTrainer:
                 obs_tensor = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
 
                 with torch.no_grad():
-                    action_outputs = self.policy.sample_actions(obs_tensor)
+                    action_outputs = self.policy.sample_actions(
+                        obs_tensor, generator=self.torch_rng
+                    )
 
                 actions = self._convert_actions_to_env(action_outputs)
                 obs, reward, done, info = step_env(self.env, actions)
@@ -387,7 +405,9 @@ class PPOTrainer:
                 episode_reward += reward
                 episode_length += 1
                 if done:
-                    obs, _info = reset_env(self.env)
+                    obs, _info = reset_env(
+                        self.env, seed=int(self.np_rng.integers(0, 2**32))
+                    )
 
             eval_rewards.append(episode_reward)
             eval_lengths.append(episode_length)
@@ -563,7 +583,8 @@ def main():
     parser.add_argument('--seed', type=int, default=None,
                        help='Random seed for reproducibility')
 
-    args = parser.parse_args()
+
+      args = parser.parse_args()
     
     # Validate config files exist
     if not os.path.exists(args.cfg):
@@ -588,12 +609,16 @@ def main():
         trainer.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     
     if args.dry_run:
-        obs, _info = reset_env(trainer.env)
+        obs, _info = reset_env(
+            trainer.env, seed=int(trainer.np_rng.integers(0, 2**32))
+        )
         for _ in range(args.dry_run):
             action = trainer.env.action_space.sample()
             obs, _, done, _ = step_env(trainer.env, action)
             if done:
-                obs, _info = reset_env(trainer.env)
+                obs, _info = reset_env(
+                    trainer.env, seed=int(trainer.np_rng.integers(0, 2**32))
+                )
         return
 
     # Start training

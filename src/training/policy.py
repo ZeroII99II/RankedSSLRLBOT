@@ -238,24 +238,26 @@ class SSLPolicy(nn.Module):
             'discrete_logits': discrete_logits
         }
     
-    def sample_actions(self, obs: torch.Tensor) -> Dict[str, torch.Tensor]:
-        """
-        Sample actions from the policy.
-        
+    def sample_actions(
+        self, obs: torch.Tensor, generator: Optional[torch.Generator] = None
+    ) -> Dict[str, torch.Tensor]:
+        """Sample actions from the policy.
+
         Args:
             obs: Observation tensor
-            
+            generator: Optional torch.Generator for deterministic sampling
+
         Returns:
             Dictionary containing sampled actions
         """
         dists = self.get_action_distribution(obs)
-        
-        continuous_actions = dists['continuous_dist'].sample()
-        discrete_actions = dists['discrete_dist'].sample()
-        
+
+        continuous_actions = dists['continuous_dist'].sample(generator=generator)
+        discrete_actions = dists['discrete_dist'].sample(generator=generator)
+
         return {
             'continuous_actions': continuous_actions,
-            'discrete_actions': discrete_actions
+            'discrete_actions': discrete_actions,
         }
     
     def log_prob(self, obs: torch.Tensor, actions: Dict[str, torch.Tensor]) -> torch.Tensor:
