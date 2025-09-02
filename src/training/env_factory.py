@@ -51,6 +51,7 @@ DISC_DIM = 3
 class RLMatchEnv(gym.Env):
     """Small Rocket League environment with configurable team sizes."""
 
+
 class CarDataWrapper:
     """Expose the minimal car interface expected by our builders."""
 
@@ -144,15 +145,16 @@ class RL2v2Env(gym.Env):
     """Small 2v2 Rocket League environment using project builders."""
 
     # ``gym.Env`` expects ``metadata['render_modes']`` to advertise the
-    # available render modes.  We support a single RGB array mode which is
-    # used by the training script when ``--render`` is supplied.
-    metadata = {"render_modes": ["rgb_array"], "render_fps": 60}
+    # available render modes.  We support RGB array rendering for the training
+    # script as well as a human mode for interactive viewing.
+    metadata = {"render_modes": ["rgb_array", "human"], "render_fps": 60}
 
-    metadata = {"render_modes": ["rgb_array", "human"]}
-
-    def __init__(self, seed: int = 42, num_players_per_team: int = 2):
-
-    def __init__(self, seed: int = 42, render: bool = False):
+    def __init__(
+        self,
+        seed: int = 42,
+        num_players_per_team: int = 2,
+        render: bool = False,
+    ):
         super().__init__()
 
         # Observation and action spaces mirror the production setup.
@@ -188,9 +190,10 @@ class RL2v2Env(gym.Env):
 
         # Scenario configuration
         self._scenario_funcs = SCENARIOS
-        cfg_path = Path(__file__).resolve().parents[2] / "configs" / "scenario_weights.yaml"
+        cfg_path = (
+            Path(__file__).resolve().parents[2] / "configs" / "scenario_weights.yaml"
+        )
         self._scenario_weights = self._load_scenario_weights(cfg_path)
- 
 
     # ------------------------------------------------------------------
     # State helpers
@@ -227,7 +230,10 @@ class RL2v2Env(gym.Env):
         ball.set_pos(*self.np_random.uniform(-1000, 1000, size=3))
         ball.set_lin_vel(*self.np_random.uniform(-500, 500, size=3))
 
-        pads = [BoostPad(position=loc.astype(np.float32)) for loc in common_values.BOOST_LOCATIONS]
+        pads = [
+            BoostPad(position=loc.astype(np.float32))
+            for loc in common_values.BOOST_LOCATIONS
+        ]
 
         return GameState(ball=ball, players=players, boost_pads=pads)
 
@@ -240,9 +246,13 @@ class RL2v2Env(gym.Env):
         # Random ball
         ball = PhysicsObject()
         ball.position = self.np_random.uniform(-1000, 1000, size=3).astype(np.float32)
-        ball.linear_velocity = self.np_random.uniform(-500, 500, size=3).astype(np.float32)
+        ball.linear_velocity = self.np_random.uniform(-500, 500, size=3).astype(
+            np.float32
+        )
         ball.angular_velocity = self.np_random.uniform(-5, 5, size=3).astype(np.float32)
-        ball.euler_angles = self.np_random.uniform(-np.pi, np.pi, size=3).astype(np.float32)
+        ball.euler_angles = self.np_random.uniform(-np.pi, np.pi, size=3).astype(
+            np.float32
+        )
         gs.ball = ball
 
         # Random cars
@@ -273,10 +283,18 @@ class RL2v2Env(gym.Env):
             car.autoflip_timer = 0.0
             car.autoflip_direction = 1.0
             phys = PhysicsObject()
-            phys.position = self.np_random.uniform(-1000, 1000, size=3).astype(np.float32)
-            phys.linear_velocity = self.np_random.uniform(-500, 500, size=3).astype(np.float32)
-            phys.angular_velocity = self.np_random.uniform(-5, 5, size=3).astype(np.float32)
-            phys.euler_angles = self.np_random.uniform(-np.pi, np.pi, size=3).astype(np.float32)
+            phys.position = self.np_random.uniform(-1000, 1000, size=3).astype(
+                np.float32
+            )
+            phys.linear_velocity = self.np_random.uniform(-500, 500, size=3).astype(
+                np.float32
+            )
+            phys.angular_velocity = self.np_random.uniform(-5, 5, size=3).astype(
+                np.float32
+            )
+            phys.euler_angles = self.np_random.uniform(-np.pi, np.pi, size=3).astype(
+                np.float32
+            )
             car.physics = phys
             gs.cars[i] = car
 
@@ -291,7 +309,9 @@ class RL2v2Env(gym.Env):
 
         """Create a scenario-driven 2v2 game state."""
         names = list(self._scenario_funcs.keys())
-        weights = np.array([self._scenario_weights.get(n, 1.0) for n in names], dtype=float)
+        weights = np.array(
+            [self._scenario_weights.get(n, 1.0) for n in names], dtype=float
+        )
         if weights.sum() <= 0:
             weights = np.ones_like(weights)
         weights = weights / weights.sum()
@@ -332,9 +352,7 @@ class RL2v2Env(gym.Env):
         self._prev_action = np.concatenate([a_cont, a_disc])
 
         engine_action = np.concatenate([a_cont, a_disc]).reshape(1, -1)
-        actions = {
-            aid: np.zeros_like(engine_action) for aid in self._engine.agents
-        }
+        actions = {aid: np.zeros_like(engine_action) for aid in self._engine.agents}
         actions[self._engine.agents[0]] = engine_action
 
         self._state = self._engine.step(actions, {})
@@ -350,9 +368,9 @@ class RL2v2Env(gym.Env):
         terminated = self._termination_cond.is_done(
             self._engine.agents, self._state, {}
         )[self._engine.agents[0]]
-        truncated = self._truncation_cond.is_done(
-            self._engine.agents, self._state, {}
-        )[self._engine.agents[0]]
+        truncated = self._truncation_cond.is_done(self._engine.agents, self._state, {})[
+            self._engine.agents[0]
+        ]
 
         return (
             obs.astype(np.float32),
@@ -404,7 +422,6 @@ class RL2v2Env(gym.Env):
         y0, y1 = max(0, by - 2), min(height, by + 3)
         frame[y0:y1, x0:x1] = (255, 255, 255)
 
-
         if not self._render_enabled:
             raise RuntimeError("Rendering disabled; initialise with render=True")
         if mode not in self.metadata["render_modes"]:
@@ -444,6 +461,7 @@ def make_env(seed: int = 42, team_size: int = 2) -> Callable[[], RLMatchEnv]:
     def _thunk() -> RLMatchEnv:
         return RLMatchEnv(seed=seed, num_players_per_team=team_size)
 
+
 def make_env(seed: int = 42, render: bool = False) -> Callable[[], RL2v2Env]:
     """Return a thunk that creates a seeded ``RL2v2Env`` instance."""
 
@@ -451,4 +469,3 @@ def make_env(seed: int = 42, render: bool = False) -> Callable[[], RL2v2Env]:
         return RL2v2Env(seed=seed, render=render)
 
     return _thunk
-
