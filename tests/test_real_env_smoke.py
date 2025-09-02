@@ -121,6 +121,61 @@ class Car:
 
 class GameConfig:
     pass
+api_rl_mod.GameState = GameState
+sys.modules.setdefault("rlgym.rocket_league.api", api_rl_mod)
+# ---------------------------------------------------------------------------
+# Stub project modules expected by PPOTrainer
+env_factory_mod = types.ModuleType("src.training.env_factory")
+
+
+CONT_DIM = 5
+DISC_DIM = 3
+
+
+class ActionSpace:
+    def __init__(self):
+        self.rng = np.random.default_rng()
+
+    def seed(self, seed):
+        self.rng = np.random.default_rng(seed)
+
+    def sample(self):
+        return {
+            'cont': self.rng.uniform(-1, 1, CONT_DIM).astype(np.float32),
+            'disc': self.rng.integers(0, 2, DISC_DIM, dtype=np.int8),
+        }
+
+
+class RLMatchEnv:
+    def __init__(self, seed=0, num_players_per_team=1):
+        self.action_space = ActionSpace()
+        self.seed = seed
+        self.num_players_per_team = num_players_per_team
+
+    def reset(self):
+        return np.zeros(107, dtype=np.float32), {}
+
+    def step(self, action):
+        return np.zeros(107, dtype=np.float32), 0.0, True, {}
+
+
+env_factory_mod.RLMatchEnv = RLMatchEnv
+env_factory_mod.CONT_DIM = CONT_DIM
+env_factory_mod.DISC_DIM = DISC_DIM
+sys.modules.setdefault("src.training.env_factory", env_factory_mod)
+
+state_setters_mod = types.ModuleType("src.training.state_setters")
+
+
+class SSLStateSetter:
+    pass
+
+
+state_setters_mod.SSLStateSetter = SSLStateSetter
+sys.modules.setdefault("src.training.state_setters", state_setters_mod)
+
+from src.training.env_factory import RLMatchEnv, CONT_DIM, DISC_DIM
+
 
 
 class GameState:
@@ -293,6 +348,15 @@ def setup_trainer(monkeypatch, seed=0):
 def test_real_env_rollout_losses(monkeypatch):
     trainer = setup_trainer(monkeypatch, seed=123)
     rollouts = trainer._collect_rollouts(4)
+    steps_per_update = trainer.config['ppo']['steps_per_update']
+    assert rollouts['actions']['continuous_actions'].shape == (
+        steps_per_update,
+        CONT_DIM,
+    )
+    assert rollouts['actions']['discrete_actions'].shape == (
+        steps_per_update,
+        DISC_DIM,
+    )
     losses = trainer._update_policy(rollouts)
     assert np.isfinite(losses["policy_loss"])
     assert np.isfinite(losses["value_loss"])
@@ -301,6 +365,25 @@ def test_real_env_rollout_losses(monkeypatch):
 def test_private_rng_determinism(monkeypatch):
     trainer1 = setup_trainer(monkeypatch, seed=999)
     trainer2 = setup_trainer(monkeypatch, seed=999)
+    actions1 = trainer1._collect_rollouts(4)['actions']
+    actions2 = trainer2._collect_rollouts(4)['actions']
+    steps_per_update = trainer1.config['ppo']['steps_per_update']
+    assert actions1['continuous_actions'].shape == (
+        steps_per_update,
+        CONT_DIM,
+    )
+    assert actions1['discrete_actions'].shape == (
+        steps_per_update,
+        DISC_DIM,
+    )
+    assert torch.equal(actions1['continuous_actions'], actions2['continuous_actions'])
+    assert torch.equal(actions1['discrete_actions'], actions2['discrete_actions'])
+
+    sample1 = trainer1.env.action_space.sample()
+    sample2 = trainer2.env.action_space.sample()
+    assert np.allclose(sample1['cont'], sample2['cont'])
+    assert np.array_equal(sample1['disc'], sample2['disc'])
+
     actions1 = trainer1._collect_rollouts(4)["actions"]
     actions2 = trainer2._collect_rollouts(4)["actions"]
     assert torch.equal(actions1["continuous_actions"], actions2["continuous_actions"])
