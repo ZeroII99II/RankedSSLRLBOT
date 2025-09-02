@@ -42,13 +42,13 @@ class PPOTrainer:
     def __init__(self, config_path: str, curriculum_path: str, seed: Optional[int] = None):
         self.console = Console()
         self.config = self._load_config(config_path)
-        self.seed = seed if seed is not None else self.config.get('training', {}).get('seed', 42)
 
-        # Seed all RNGs
         training_cfg = self.config.setdefault('training', {})
         if seed is not None:
             training_cfg['seed'] = seed
-        self.seed = training_cfg.get('seed', 0)
+        self.seed = training_cfg.get('seed', 42)
+
+        # Seed all RNGs
         random.seed(self.seed)
         np.random.seed(self.seed)
         torch.manual_seed(self.seed)
