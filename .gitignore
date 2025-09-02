@@ -68,6 +68,8 @@ Thumbs.db
 # RLBot
 replays/
 *.replay
+RLBotServer
+RLBotServer.exe
 
 # Temporary files
 *.tmp
