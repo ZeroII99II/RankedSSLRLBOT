@@ -3,6 +3,8 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
+import src  # ensure package exists before stubbing submodules
+
 # Stub out rlgym modules used by trainer
 rlgym_mod = types.ModuleType("rlgym")
 rlgym_mod.make = lambda *args, **kwargs: None
@@ -81,17 +83,23 @@ class SSLStateSetter:
 state_setters_mod.SSLStateSetter = SSLStateSetter
 sys.modules.setdefault("src.training.state_setters", state_setters_mod)
 
-env_factory_mod = types.ModuleType("src.training.env_factory")
-env_factory_mod.CONT_DIM = 5
-env_factory_mod.DISC_DIM = 3
-sys.modules.setdefault("src.training.env_factory", env_factory_mod)
+# Constants for action dimensions
+CONT_DIM = 5
+DISC_DIM = 3
 
-from src.training.env_factory import CONT_DIM, DISC_DIM
+# Stub gymnasium to satisfy gym_compat when unavailable
+try:
+    import gymnasium  # type: ignore
+except Exception:
+    gym_mod = types.ModuleType("gymnasium")
+    gym_mod.Space = object
+    gym_mod.spaces = types.SimpleNamespace(Box=object)
+    sys.modules.setdefault("gymnasium", gym_mod)
+
+from src.training.train import PPOTrainer
 
 import src.training.state_setters as state_setters_mod
 state_setters_mod.SSLStateSetter = object
-
-from src.training.train import PPOTrainer
 
 
 class DummyEnv:
@@ -270,3 +278,46 @@ def test_collect_rollout_without_done(monkeypatch):
 
     assert rollouts['episode_rewards'] == [0.0]
     assert rollouts['episode_lengths'] == [2]
+
+
+def test_single_step_collection(monkeypatch):
+    import torch
+
+    class DummyPolicy(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear = torch.nn.Linear(107, 8)
+
+        def sample_actions(self, obs, generator=None):
+            logits = self.linear(obs)
+            return {
+                'continuous_actions': torch.tanh(logits[:, :5]),
+                'discrete_actions': torch.sigmoid(logits[:, 5:])
+            }
+
+        def log_prob(self, obs, actions):
+            return torch.zeros(obs.shape[0])
+
+        def entropy(self, obs):
+            return torch.zeros(obs.shape[0])
+
+    class DummyCritic(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear = torch.nn.Linear(107, 1)
+
+        def forward(self, obs):
+            return self.linear(obs)
+
+    monkeypatch.setattr('src.training.train.CurriculumManager', DummyCurriculum)
+    monkeypatch.setattr(PPOTrainer, '_load_config', lambda self, path: minimal_config())
+    monkeypatch.setattr(PPOTrainer, '_create_environment', lambda self: DummyEnv())
+    monkeypatch.setattr('src.training.train.create_ssl_policy', lambda cfg: DummyPolicy())
+    monkeypatch.setattr('src.training.train.create_ssl_critic', lambda cfg: DummyCritic())
+
+    trainer = PPOTrainer('cfg', 'curr')
+    rollouts = trainer._collect_rollouts(1)
+
+    assert rollouts['observations'].shape == (1, 107)
+    assert rollouts['actions']['continuous_actions'].shape == (1, CONT_DIM)
+    assert rollouts['actions']['discrete_actions'].shape == (1, DISC_DIM)

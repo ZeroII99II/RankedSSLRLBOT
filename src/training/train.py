@@ -189,15 +189,16 @@ class PPOTrainer:
             
             for step in range(num_steps):
                 # Convert observations to tensor with batch dimension
-                obs_tensor = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
-                
+                obs = torch.as_tensor(obs, dtype=torch.float32, device=self.device)
+                obs = obs.unsqueeze(0)
+
                 # Get action from policy
                 with torch.no_grad():
                     action_outputs = self.policy.sample_actions(
-                        obs_tensor, generator=self.torch_rng
+                        obs, generator=self.torch_rng
                     )
-                    value = self.critic(obs_tensor)
-                    log_prob = self.policy.log_prob(obs_tensor, action_outputs)
+                    value = self.critic(obs)
+                    log_prob = self.policy.log_prob(obs, action_outputs)
                 
                 # Convert actions to environment format
                 actions = self._convert_actions_to_env(action_outputs)
@@ -206,7 +207,7 @@ class PPOTrainer:
                 next_obs, reward, done, info = step_env(self.env, actions)
                 
                 # Store experience
-                obs_buffer.append(obs_tensor.cpu())
+                obs_buffer.append(obs.cpu())
                 action_buffer['continuous_actions'].append(
                     action_outputs['continuous_actions'].cpu()
                 )
@@ -267,11 +268,12 @@ class PPOTrainer:
         continuous_actions = action_outputs['continuous_actions'].cpu().numpy()
         discrete_actions = action_outputs['discrete_actions'].cpu().numpy()
 
+        # Remove batch dimension if present
+        continuous_actions = np.squeeze(continuous_actions, axis=0)
+        discrete_actions = np.squeeze(discrete_actions, axis=0)
+
         # Combine continuous and discrete actions for single environment
-        action = np.concatenate([
-            continuous_actions[0],  # throttle, steer, pitch, yaw, roll
-            discrete_actions[0]     # jump, boost, handbrake
-        ])
+        action = np.concatenate([continuous_actions, discrete_actions])
 
         return action
     
@@ -396,11 +398,12 @@ class PPOTrainer:
             done = False
 
             while not done:
-                obs_tensor = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
+                obs = torch.as_tensor(obs, dtype=torch.float32, device=self.device)
+                obs = obs.unsqueeze(0)
 
                 with torch.no_grad():
                     action_outputs = self.policy.sample_actions(
-                        obs_tensor, generator=self.torch_rng
+                        obs, generator=self.torch_rng
                     )
 
                 actions = self._convert_actions_to_env(action_outputs)
