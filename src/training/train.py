@@ -171,6 +171,7 @@ class PPOTrainer:
             )
         except TypeError:
             obs, _info = reset_env(self.env)
+        self.env.action_space.seed(int(self.np_rng.integers(0, 2**32)))
         episode_rewards = []
         episode_lengths = []
         episode_reward = 0.0
@@ -233,6 +234,7 @@ class PPOTrainer:
                         )
                     except TypeError:
                         obs, _info = reset_env(self.env)
+                    self.env.action_space.seed(int(self.np_rng.integers(0, 2**32)))
 
                 progress.update(task, advance=1)
 
