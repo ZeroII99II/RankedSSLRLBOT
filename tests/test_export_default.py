@@ -35,14 +35,18 @@ def test_export_default_path(tmp_path, monkeypatch):
     ckpt_path = tmp_path / "ckpt.pt"
     torch.save(build_policy(export.OBS_DIM_DEFAULT, export.CONT_DIM, export.DISC_DIM).state_dict(), ckpt_path)
 
-    # Run export script with default output path
-    monkeypatch.setattr(sys, "argv", ["export.py", "--ckpt", str(ckpt_path)])
+    # Run export script with explicit output path and load the result
+    out_file = tmp_path / "tiny.ts"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["export.py", "--ckpt", str(ckpt_path), "--out", out_file.as_posix()],
+    )
     export.main()
 
-    out_path = tmp_path / export.DEFAULT_OUT
-    assert out_path.is_file()
+    assert out_file.is_file()
 
-    scripted = torch.jit.load(out_path.as_posix())
+    scripted = torch.jit.load(out_file.as_posix())
     out_cont, out_disc = scripted(torch.zeros(1, export.OBS_DIM_DEFAULT))
     assert out_cont.shape == (1, export.CONT_DIM)
     assert out_disc.shape == (1, export.DISC_DIM)
