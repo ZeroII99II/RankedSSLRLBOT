@@ -1,37 +1,30 @@
 # Streaming Training and RLBot Gameplay
 
-This guide covers how to run continuous training/export and display the policy in Rocket League, then broadcast to Twitch using OBS.
+This guide shows how to watch the trainer, visualise the policy in Rocket League and broadcast the window to Twitch.
 
-## Continuous Training and Export
+## Watch the Trainer
 
-The script `scripts/night_train_v2.sh` loops forever, training the bot and exporting a TorchScript policy on each iteration.
+Use the `--render` flag to open a lightweight viewer while PPO training runs in the background:
 
 ```bash
-scripts/night_train_v2.sh
+python src/training/train_v2.py --render
 ```
 
-- Training runs for 1,000,000 steps with 1 environment.
-- If training and export succeed, the policy is copied to `models/exported/ssl_policy.ts`.
-- On failure, the script waits 5 seconds and restarts.
+The viewer uses a single non-vectorised environment; training continues with the number of environments specified by `--envs`.
 
-## Displaying the Policy in Rocket League
+## Display the Policy in Rocket League
 
-Launch RLBot locally to watch the latest exported policy.
+After exporting a policy to `models/exported/ssl_policy.ts`, launch RLBot locally to watch the bot control cars in the game client:
 
 ```bash
 scripts/run_rlbot_local.sh
 ```
 
-- RLBot looks for the policy at `models/exported/ssl_policy.ts`. Set `SSL_POLICY_PATH` to override this location.
-- Ensure Rocket League is installed and open; the RLBot client will attach and control cars.
+Set the `SSL_POLICY_PATH` environment variable if the policy lives elsewhere.
 
-## Streaming to Twitch
+## Stream to Twitch
 
-Use [OBS Studio](https://obsproject.com/) or similar software:
-
-1. Open OBS and add a **Window Capture** source for the Rocket League window.
-2. In **Settings → Stream**, select **Twitch** and paste your stream key.
-3. Optional: add microphone or overlay sources.
-4. Click **Start Streaming** to broadcast the RLBot match.
-
-With training running in one terminal and RLBot in another, OBS will capture the gameplay and send it to your Twitch channel.
+1. Open [OBS Studio](https://obsproject.com/).
+2. Add a **Window Capture** source for either the training viewer or the Rocket League window.
+3. Under **Settings → Stream**, choose **Twitch** and enter your stream key.
+4. Click **Start Streaming** to broadcast.
