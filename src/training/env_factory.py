@@ -38,9 +38,9 @@ DISC_DIM = 3
 class RL2v2Env(gym.Env):
     """Small 2v2 Rocket League environment using project builders."""
 
-    metadata = {"render_modes": []}
+    metadata = {"render_modes": ["rgb_array", "human"]}
 
-    def __init__(self, seed: int = 42):
+    def __init__(self, seed: int = 42, render: bool = False):
         super().__init__()
 
         # Observation and action spaces mirror the production setup.
@@ -64,6 +64,7 @@ class RL2v2Env(gym.Env):
 
         self._state: GameState | None = None
         self._prev_action = np.zeros(CONT_DIM + DISC_DIM, dtype=np.float32)
+        self._render_enabled = render
 
     # ------------------------------------------------------------------
     # State helpers
@@ -138,12 +139,47 @@ class RL2v2Env(gym.Env):
         )
         return obs.astype(np.float32), float(reward), False, False, {}
 
+    # ------------------------------------------------------------------
+    # Rendering
+    def render(self, mode: str = "rgb_array"):
+        if not self._render_enabled:
+            raise RuntimeError("Rendering disabled; initialise with render=True")
+        if mode not in self.metadata["render_modes"]:
+            raise ValueError(f"Unsupported render mode: {mode}")
+        if self._state is None:
+            return np.zeros((256, 256, 3), dtype=np.uint8)
 
-def make_env(seed: int = 42) -> Callable[[], RL2v2Env]:
+        size = 256
+        frame = np.zeros((size, size, 3), dtype=np.uint8)
+
+        def to_px(vec):
+            x = int((vec[0] + 2000) / 4000 * (size - 1))
+            y = int((vec[1] + 2000) / 4000 * (size - 1))
+            return x, y
+
+        bx, by = to_px(self._state.ball.position)
+        frame[by, bx] = (255, 255, 255)
+        for p in self._state.players:
+            px, py = to_px(p.car_data.position)
+            color = (0, 0, 255) if p.team_num == 0 else (255, 0, 0)
+            frame[py, px] = color
+
+        if mode == "human":
+            try:
+                import cv2  # type: ignore
+
+                cv2.imshow("RL2v2Env", frame)
+                cv2.waitKey(1)
+            except Exception:
+                pass
+        return frame
+
+
+def make_env(seed: int = 42, render: bool = False) -> Callable[[], RL2v2Env]:
     """Return a thunk that creates a seeded ``RL2v2Env`` instance."""
 
     def _thunk() -> RL2v2Env:
-        return RL2v2Env(seed=seed)
+        return RL2v2Env(seed=seed, render=render)
 
     return _thunk
 

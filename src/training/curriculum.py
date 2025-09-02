@@ -436,6 +436,11 @@ class CurriculumManager:
 
         gates = current_phase.progression_gates
 
+        # Some gates apply to overall training statistics rather than evaluation metrics
+        min_games = gates.get("min_games", 0)
+        games_ok = self.games_played >= min_games
+
+        # Remaining gates are treated as evaluation metric thresholds
         # Check evaluation metrics first to ensure missing metrics are logged
         missing_metrics = []
         for metric, threshold in gates.items():
@@ -449,7 +454,7 @@ class CurriculumManager:
             if value < threshold:
                 return False
 
-        if missing_metrics:
+        if missing_metrics or not games_ok:
             return False
 
         # Finally check overall training statistics like games played
