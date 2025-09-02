@@ -4,12 +4,15 @@ import numpy as np
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from src.training.env_factory import make_env, CONT_DIM, DISC_DIM
+from rlgym.api.config import ObsBuilder, RewardFunction
 
 
 def test_make_env_observation_size():
     env = make_env()()
     obs, _ = env.reset()
     assert obs.shape == env.observation_space.shape
+    assert isinstance(env._obs_builder, ObsBuilder)
+    assert isinstance(env._reward_fn, RewardFunction)
 
 
 def test_step_reward_not_nan():
