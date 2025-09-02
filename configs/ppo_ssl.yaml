@@ -49,7 +49,6 @@ ppo:
 training:
   # Random seed for reproducibility
   seed: 42
-  seed: 0
   # Frequency (in env steps) to run evaluation episodes
   eval_frequency: 327680
   # Number of episodes to run during evaluation
