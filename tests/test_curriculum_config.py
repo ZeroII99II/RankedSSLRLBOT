@@ -29,3 +29,29 @@ def test_curriculum_config_fields():
         missing = required_fields - phase_dict.keys()
         assert not missing, f"{phase_name} missing fields: {missing}"
 
+        # progression_gates should be a flat mapping without nested structures
+        gates = phase.progression_gates
+        assert isinstance(gates, dict)
+        assert "min_games" in gates
+        assert all(not isinstance(v, dict) for v in gates.values()), "progression_gates must be flat"
+
+
+def test_can_progress_when_thresholds_met():
+    manager = CurriculumManager("configs/curriculum.yaml")
+
+    # Focus on bronze phase for a simple check
+    manager.current_phase = "bronze"
+    bronze = manager.get_current_phase()
+
+    # Satisfy both min_training_steps and min_games gates
+    required_steps = max(bronze.min_training_steps, bronze.progression_gates["min_games"])
+    manager.training_steps = required_steps
+
+    # Provide evaluation metrics that meet or exceed thresholds
+    eval_metrics = {
+        "on_target_pct": bronze.progression_gates["on_target_pct"],
+        "recoveries_per_min": bronze.progression_gates["recoveries_per_min"],
+    }
+
+    assert manager.can_progress(eval_metrics), "Bronze phase should allow progression when thresholds are met"
+

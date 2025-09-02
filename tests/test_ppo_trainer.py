@@ -75,7 +75,7 @@ def minimal_config():
             'gamma': 0.99,
             'gae_lambda': 0.95,
             'n_epochs': 1,
-            'steps_per_update': 1,
+            'steps_per_update': 2,
             'mini_batches': 1,
             'clip_ratio': 0.2,
             'value_loss_coef': 0.5,
@@ -128,7 +128,36 @@ def test_collect_one_step(monkeypatch):
     monkeypatch.setattr('src.training.train.create_ssl_policy', lambda cfg: DummyPolicy())
     monkeypatch.setattr('src.training.train.create_ssl_critic', lambda cfg: DummyCritic())
 
-    trainer = PPOTrainer('cfg', 'curr')
+    trainer = PPOTrainer('cfg', 'curr
+    rollouts = trainer._collect_rollouts(2)
+    assert rollouts['observations'].shape == (2, 107)
 
+    # Stack action tensors as expected by the trainer
+    actions_list = rollouts['actions']
+    rollouts['actions'] = {
+        k: torch.cat([a[k] for a in actions_list], dim=0) for k in actions_list[0]
+    }
+
+    # Ensure stacked action tensors match observation count
+    assert rollouts['actions']['continuous_actions'].shape == (2, 5)
+    assert rollouts['actions']['discrete_actions'].shape == (2, 3)
+
+    # _compute_advantages expects float done flags
+    rollouts['dones'] = rollouts['dones'].float()
+
+    # Update policy and verify returned loss metrics
+    losses = trainer._update_policy(rollouts)
+    assert set(['policy_loss', 'value_loss', 'entropy_loss']).issubset(losses)
+    for value in losses.values():
+        assert np.isfinite(value)
+=======
     rollouts = trainer._collect_rollouts(1)
     assert rollouts['observations'].shape == (1, 107)
+    assert rollouts['actions']['continuous_actions'].shape == (1, 5)
+    assert rollouts['actions']['discrete_actions'].shape == (1, 3)
+ codex/update-training-logic-and-tests
+    assert rollouts['episode_rewards'] == [0.0]
+    assert rollouts['episode_lengths'] == [1]
+
+
+

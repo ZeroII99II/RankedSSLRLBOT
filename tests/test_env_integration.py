@@ -23,3 +23,4 @@ def test_step_produces_float_reward():
     obs, reward, terminated, truncated, info = env.step(action)
     assert isinstance(obs, np.ndarray) and obs.shape == (OBS_SIZE,)
     assert isinstance(reward, float)
+    assert not np.isnan(reward)

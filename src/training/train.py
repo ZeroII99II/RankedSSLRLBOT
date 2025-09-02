@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
 import argparse
 import os
 import time
+import random
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 import random
@@ -49,6 +50,10 @@ class PPOTrainer:
         self.seed = seed if seed is not None else self.config.get('training', {}).get('seed', 42)
 
         # Seed all RNGs
+        training_cfg = self.config.setdefault('training', {})
+        if seed is not None:
+            training_cfg['seed'] = seed
+        self.seed = training_cfg.get('seed', 0)
         random.seed(self.seed)
         np.random.seed(self.seed)
         torch.manual_seed(self.seed)
@@ -146,7 +151,8 @@ class PPOTrainer:
                 common_conditions.TimeoutCondition(300),  # 5 minutes
                 common_conditions.GoalScoredCondition()
             ],
-            action_parser=self.action_parser
+            action_parser=self.action_parser,
+            seed=self.seed
         )
         
         return env
@@ -159,10 +165,12 @@ class PPOTrainer:
         value_buffer = []
         log_prob_buffer = []
         done_buffer = []
-        
+
         obs, _info = reset_env(self.env)
         episode_rewards = []
         episode_lengths = []
+        episode_reward = 0.0
+        episode_len = 0
         
         with Progress(
             SpinnerColumn(),
@@ -190,10 +198,24 @@ class PPOTrainer:
                 # Step environment
                 next_obs, reward, done, info = step_env(self.env, actions)
 
+                episode_reward += reward
+                episode_len += 1
+
                 # Store experience
                 obs_buffer.append(obs_tensor.cpu())
-                action_buffer.append(action_outputs)
+                action_buffer.append({
+
+                    "continuous_actions": action_outputs["continuous_actions"].cpu(),
+                    "discrete_actions": action_outputs["discrete_actions"].cpu(),
+                })
                 reward_buffer.append(torch.tensor([reward], dtype=torch.float32).to(self.device))
+
+                    'continuous_actions': action_outputs['continuous_actions'].cpu(),
+                    'discrete_actions': action_outputs['discrete_actions'].cpu(),
+                })
+                reward_tensor = torch.tensor([reward], dtype=torch.float32).to(self.device)
+                reward_buffer.append(reward_tensor)
+
                 value_buffer.append(value.cpu())
                 log_prob_buffer.append(log_prob.cpu())
                 done_buffer.append(torch.tensor([done], dtype=torch.bool).to(self.device))
@@ -201,23 +223,37 @@ class PPOTrainer:
                 obs = next_obs
 
                 # Track episode statistics
+                episode_reward += reward
+                episode_len += 1
                 if done:
-                    episode_rewards.append(reward)
-                    episode_lengths.append(step + 1)
+                    episode_rewards.append(episode_reward)
+                    episode_lengths.append(episode_len)
+                    episode_reward = 0.0
+                    episode_len = 0
                     obs, _info = reset_env(self.env)
-                
+
                 progress.update(task, advance=1)
         
         # Convert buffers to tensors
+        actions = {
+
+            "continuous_actions": torch.cat([a["continuous_actions"] for a in action_buffer]),
+            "discrete_actions": torch.cat([a["discrete_actions"] for a in action_buffer]),
+
+            'continuous_actions': torch.cat([a['continuous_actions'] for a in action_buffer]),
+            'discrete_actions': torch.cat([a['discrete_actions'] for a in action_buffer]),
+
+        }
+
         rollouts = {
             'observations': torch.cat(obs_buffer),
-            'actions': action_buffer,
+            'actions': actions,
             'rewards': torch.cat(reward_buffer),
             'values': torch.cat(value_buffer),
             'log_probs': torch.cat(log_prob_buffer),
             'dones': torch.cat(done_buffer),
             'episode_rewards': episode_rewards,
-            'episode_lengths': episode_lengths
+            'episode_lengths': episode_lengths,
         }
         
         return rollouts
@@ -273,7 +309,7 @@ class PPOTrainer:
         
         # Prepare data
         obs = rollouts['observations'].to(self.device)
-        actions = rollouts['actions']
+        actions = {k: v.to(self.device) for k, v in rollouts['actions'].items()}
         old_log_probs = rollouts['log_probs'].to(self.device)
         advantages = advantages.to(self.device)
         returns = returns.to(self.device)
@@ -540,6 +576,7 @@ def main():
                        help='If > 0, run this many env steps and exit')
     parser.add_argument('--seed', type=int, default=None,
                        help='Random seed for reproducibility')
+                        help='Random seed for reproducibility')
     
     args = parser.parse_args()
     

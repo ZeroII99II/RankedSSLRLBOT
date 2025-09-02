@@ -5,6 +5,7 @@ rlgym package to be installed during testing.  Only functionality needed by
 our tests is implemented.
 """
 from .base import ObsBuilder, RewardFunction, StateSetter, TerminalCondition
+from .game_state import GameState, PlayerData, CarData, BoostPad, BallData
 from . import common_values
 
 __all__ = [
@@ -12,5 +13,10 @@ __all__ = [
     "RewardFunction",
     "StateSetter",
     "TerminalCondition",
+    "GameState",
+    "PlayerData",
+    "CarData",
+    "BoostPad",
+    "BallData",
     "common_values",
 ]
