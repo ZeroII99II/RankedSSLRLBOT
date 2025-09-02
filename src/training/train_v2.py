@@ -12,11 +12,15 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--ckpt_dir", type=str, default="models/checkpoints")
     ap.add_argument("--tensorboard", type=str, default="runs/ssl_v2")
+    ap.add_argument("--render", action="store_true", help="Enable environment rendering")
     args = ap.parse_args()
 
     os.makedirs(args.ckpt_dir, exist_ok=True)
 
-    env_fns = [make_env(seed=args.seed+i) for i in range(args.envs)]
+    env_fns = [
+        make_env(seed=args.seed + i, render=args.render and i == 0)
+        for i in range(args.envs)
+    ]
     vec = make_vec(env_fns)
     policy_kwargs = make_policy_kwargs()
 
@@ -37,6 +41,19 @@ def main():
         seed=args.seed,
         device="cuda" if torch.cuda.is_available() else "cpu",
     )
+    if args.render:
+        import threading, time
+
+        def _viewer():
+            while True:
+                try:
+                    vec.envs[0].render("human")
+                    time.sleep(1 / 60)
+                except Exception:
+                    break
+
+        threading.Thread(target=_viewer, daemon=True).start()
+
     model.learn(total_timesteps=args.steps)
     model.save(os.path.join(args.ckpt_dir, "best_sb3.zip"))
 

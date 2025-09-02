@@ -436,8 +436,7 @@ class CurriculumManager:
 
         # Some gates apply to overall training statistics rather than evaluation metrics
         min_games = gates.get("min_games", 0)
-        if self.games_played < min_games:
-            return False
+        games_ok = self.games_played >= min_games
 
         # Remaining gates are treated as evaluation metric thresholds
         missing_metrics = []
@@ -452,7 +451,7 @@ class CurriculumManager:
             if value < threshold:
                 return False
 
-        if missing_metrics:
+        if missing_metrics or not games_ok:
             return False
 
         return True
