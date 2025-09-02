@@ -194,38 +194,22 @@ class PPOTrainer:
                 
                 # Convert actions to environment format
                 actions = self._convert_actions_to_env(action_outputs)
-                
+
                 # Step environment
                 next_obs, reward, done, info = step_env(self.env, actions)
-
-                episode_reward += reward
-                episode_len += 1
-
+                
                 # Store experience
                 obs_buffer.append(obs_tensor.cpu())
                 action_buffer['continuous_actions'].append(
-                    action_outputs['continuous_actions']
+                    action_outputs['continuous_actions'].cpu()
                 )
                 action_buffer['discrete_actions'].append(
-                    action_outputs['discrete_actions']
+                    action_outputs['discrete_actions'].cpu()
                 )
-
-                action_buffer.append({
-
-                    "continuous_actions": action_outputs["continuous_actions"].cpu(),
-                    "discrete_actions": action_outputs["discrete_actions"].cpu(),
-                })
-                reward_buffer.append(torch.tensor([reward], dtype=torch.float32).to(self.device))
-
-                    'continuous_actions': action_outputs['continuous_actions'].cpu(),
-                    'discrete_actions': action_outputs['discrete_actions'].cpu(),
-                })
-                reward_tensor = torch.tensor([reward], dtype=torch.float32).to(self.device)
-                reward_buffer.append(reward_tensor)
-
+                reward_buffer.append(torch.tensor([reward], dtype=torch.float32))
                 value_buffer.append(value.cpu())
                 log_prob_buffer.append(log_prob.cpu())
-                done_buffer.append(torch.tensor([done], dtype=torch.bool).to(self.device))
+                done_buffer.append(torch.tensor([done], dtype=torch.bool))
 
                 obs = next_obs
 
@@ -244,16 +228,7 @@ class PPOTrainer:
         # Convert buffers to tensors
         actions = {
             'continuous_actions': torch.cat(action_buffer['continuous_actions']),
-            'discrete_actions': torch.cat(action_buffer['discrete_actions'])
-
-
-            "continuous_actions": torch.cat([a["continuous_actions"] for a in action_buffer]),
-            "discrete_actions": torch.cat([a["discrete_actions"] for a in action_buffer]),
-
-            'continuous_actions': torch.cat([a['continuous_actions'] for a in action_buffer]),
-            'discrete_actions': torch.cat([a['discrete_actions'] for a in action_buffer]),
-
-
+            'discrete_actions': torch.cat(action_buffer['discrete_actions']),
         }
 
         rollouts = {
