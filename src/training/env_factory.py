@@ -367,10 +367,26 @@ class RL2v2Env(gym.Env):
         return frame
 
 
-def make_env(seed: int = 42, render: bool = False) -> Callable[[], RL2v2Env]:
-    """Return a thunk that creates a seeded ``RL2v2Env`` instance."""
+def make_env(
+    seed: int = 42, render: bool = False, team_size: int = 2
+) -> Callable[[], RL2v2Env]:
+    """Return a thunk that creates a seeded ``RL2v2Env`` instance.
+
+    Parameters
+    ----------
+    seed
+        Random seed for the environment.
+    render
+        Whether to enable rendering for the created environment.
+    team_size
+        Number of players per team.  This is forwarded to ``RL2v2Env`` so
+        that training scripts can easily switch between 1v1 and 2v2
+        environments.
+    """
 
     def _thunk() -> RL2v2Env:
-        return RL2v2Env(seed=seed, render=render)
+        return RL2v2Env(
+            seed=seed, render=render, num_players_per_team=team_size
+        )
 
     return _thunk
