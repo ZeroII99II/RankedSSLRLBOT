@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
 import argparse
 import os
 import time
+import random
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 import yaml
@@ -41,12 +42,21 @@ class PPOTrainer:
     """
     PPO trainer for SSL bot with curriculum learning and self-play.
     """
-    
-    def __init__(self, config_path: str, curriculum_path: str):
+
+    def __init__(self, config_path: str, curriculum_path: str, seed: Optional[int] = None):
         self.console = Console()
         self.config = self._load_config(config_path)
+        training_cfg = self.config.setdefault('training', {})
+        if seed is not None:
+            training_cfg['seed'] = seed
+        self.seed = training_cfg.get('seed', 0)
+        random.seed(self.seed)
+        np.random.seed(self.seed)
+        torch.manual_seed(self.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(self.seed)
         self.curriculum = CurriculumManager(curriculum_path)
-        
+
         # Setup device
         self.device = self._setup_device()
         
@@ -135,7 +145,8 @@ class PPOTrainer:
                 common_conditions.TimeoutCondition(300),  # 5 minutes
                 common_conditions.GoalScoredCondition()
             ],
-            action_parser=self.action_parser
+            action_parser=self.action_parser,
+            seed=self.seed
         )
         
         return env
@@ -542,6 +553,8 @@ def main():
                        help='Directory for saving checkpoints')
     parser.add_argument('--dry_run', type=int, default=0,
                        help='If > 0, run this many env steps and exit')
+    parser.add_argument('--seed', type=int, default=None,
+                        help='Random seed for reproducibility')
     
     args = parser.parse_args()
     
@@ -552,7 +565,7 @@ def main():
         raise FileNotFoundError(f"Curriculum file not found: {args.curr}")
     
     # Create trainer
-    trainer = PPOTrainer(args.cfg, args.curr)
+    trainer = PPOTrainer(args.cfg, args.curr, seed=args.seed)
     
     # Override device if specified
     if args.device != 'auto':
