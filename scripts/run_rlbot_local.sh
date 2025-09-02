@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 . .venv/bin/activate
-python -m rlbot
+python run.py "$@"
