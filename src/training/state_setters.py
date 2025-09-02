@@ -28,7 +28,16 @@ def rand_vec3(min_val: float = -1.0, max_val: float = 1.0) -> np.ndarray:
 
 class DefaultState:
     """Placeholder for compatibility during testing."""
-    pass
+    def reset(self, state_wrapper: StateWrapper):
+        # Center the ball and stop motion
+        state_wrapper.ball.set_pos(0, 0, BALL_RADIUS)
+        state_wrapper.ball.set_lin_vel(0, 0, 0)
+        # Place all cars at origin on ground
+        for car in state_wrapper.cars:
+            car.set_pos(0, 0, BALL_RADIUS)
+            car.set_lin_vel(0, 0, 0)
+            car.set_ang_vel(0, 0, 0)
+            car.set_rot(0, 0, 0)
 
 
 class StateWrapper:

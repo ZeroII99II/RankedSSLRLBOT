@@ -3,16 +3,23 @@ from __future__ import annotations
 from typing import Dict, Any, Callable, List
 
 import numpy as np
+from rlgym.api import RLGym
+from rlgym.api.config import (
+    ActionParser as APIActionParser,
+    TransitionEngine as APITransitionEngine,
+    StateMutator as APIStateMutator,
+    RewardFunction as APIRewardFunction,
+    ObsBuilder as APIObsBuilder,
+)
 
 from src.compat.rlgym_v2_compat.common_values import BOOST_LOCATIONS, CAR_MAX_SPEED
+from src.compat.rlgym_v2_compat import GameState, PlayerData, CarData, BoostPad, BallData
 from src.utils.gym_compat import gym
 
-# Modern RLGym v2 components used by the environment
 from .observers import ModernObsBuilder
 from .rewards import ModernRewardSystem
 from .state_setters import ModernStateSetter
-
-# Your RLBot obs adapter defines the canonical size:
+from .action_adapter import to_rlgym
 from src.rlbot_integration.observation_adapter import OBS_SIZE  # must be 107
 
 # Action schema:
@@ -22,212 +29,239 @@ CONT_DIM = 5
 DISC_DIM = 3
 
 
-class _Ball:
-    """Simple physics object representing the ball."""
+class SimpleActionParser(APIActionParser[int, Dict[str, np.ndarray], np.ndarray, GameState, gym.spaces.Dict]):
+    """Action parser converting env dict actions to RLGym's engine format."""
+
+    def __init__(self, action_space: gym.spaces.Dict):
+        self._action_space = action_space
+
+    def get_action_space(self, agent: int) -> gym.spaces.Dict:
+        return self._action_space
+
+    def reset(self, agents: List[int], initial_state: GameState, shared_info: Dict[str, Any]) -> None:
+        pass
+
+    def parse_actions(
+        self, actions: Dict[int, Dict[str, np.ndarray]], state: GameState, shared_info: Dict[str, Any]
+    ) -> Dict[int, np.ndarray]:
+        engine_actions: Dict[int, np.ndarray] = {}
+        for agent, act in actions.items():
+            a_cont = np.clip(act["cont"].astype(np.float32), -1.0, 1.0)
+            a_disc = act["disc"].astype(np.float32).clip(0, 1)
+            engine_actions[agent] = to_rlgym(a_cont, a_disc)
+        return engine_actions
+
+
+class SimplePhysicsEngine(APITransitionEngine[int, GameState, np.ndarray]):
+    """Minimal transition engine advancing a tiny GameState."""
 
     def __init__(self):
-        self.position = np.zeros(3, dtype=np.float32)
-        self.linear_velocity = np.zeros(3, dtype=np.float32)
+        self._agents = [0, 1]
+        self._config: Dict[str, Any] = {}
+        self._state = self.create_base_state()
 
-    def set_pos(self, x: float, y: float, z: float):
-        self.position[:] = (x, y, z)
+    # Required interface -------------------------------------------------
+    @property
+    def agents(self) -> List[int]:
+        return self._agents
 
-    def set_lin_vel(self, x: float, y: float, z: float):
-        self.linear_velocity[:] = (x, y, z)
+    @property
+    def max_num_agents(self) -> int:
+        return len(self._state.players)
 
+    @property
+    def state(self) -> GameState:
+        return self._state
 
-class _Car:
-    """Minimal car model with orientation helpers."""
+    @property
+    def config(self) -> Dict[str, Any]:
+        return self._config
 
-    def __init__(self, team: int):
-        self.team_num = team
-        self.position = np.zeros(3, dtype=np.float32)
-        self.linear_velocity = np.zeros(3, dtype=np.float32)
-        self.angular_velocity = np.zeros(3, dtype=np.float32)
-        self.pitch = 0.0
-        self.yaw = 0.0
-        self.roll = 0.0
+    @config.setter
+    def config(self, value: Dict[str, Any]) -> None:
+        self._config = value
 
-    def set_pos(self, x: float, y: float, z: float):
-        self.position[:] = (x, y, z)
+    # Core logic ---------------------------------------------------------
+    def step(self, actions: Dict[int, np.ndarray], shared_info: Dict[str, Any]) -> GameState:
+        for agent, act in actions.items():
+            player = self._state.players[agent]
+            car = player.car_data
+            throttle, steer, pitch, yaw, roll, jump, boost, handbrake = act
 
-    def set_lin_vel(self, x: float, y: float, z: float):
-        self.linear_velocity[:] = (x, y, z)
+            # Orientation update
+            car.set_rot(
+                car.pitch + pitch * 0.02,
+                car.yaw + yaw * 0.02,
+                car.roll + roll * 0.02,
+            )
+            # Simple velocity/position update along forward vector
+            forward = car.forward()
+            speed = throttle * CAR_MAX_SPEED * 0.1
+            car.set_lin_vel(*(forward * speed))
+            car.set_pos(*(car.position + car.linear_velocity * 0.016))
 
-    def set_ang_vel(self, x: float, y: float, z: float):
-        self.angular_velocity[:] = (x, y, z)
+            # Discrete mechanics
+            if jump:
+                player.on_ground = False
+                player.has_jump = False
+            else:
+                player.on_ground = True
+            if boost:
+                player.boost_amount = min(100.0, player.boost_amount + 10.0)
+            else:
+                player.boost_amount = max(0.0, player.boost_amount - 0.5)
 
-    def set_rot(self, pitch: float, yaw: float, roll: float):
-        self.pitch = pitch
-        self.yaw = yaw
-        self.roll = roll
+        # Advance timer
+        self._state.game_seconds_remaining = max(
+            0.0, self._state.game_seconds_remaining - 0.016
+        )
+        return self._state
 
-    # Orientation helpers used by observation builder
-    def forward(self) -> np.ndarray:
-        cp = np.cos(self.pitch)
-        sp = np.sin(self.pitch)
-        cy = np.cos(self.yaw)
-        sy = np.sin(self.yaw)
-        return np.array([cp * cy, cp * sy, sp], dtype=np.float32)
+    def create_base_state(self) -> GameState:
+        ball = BallData()
+        cars = [CarData(0), CarData(0), CarData(1), CarData(1)]
+        players = [PlayerData(c, c.team_num) for c in cars]
+        boost_pads = [BoostPad(pos.copy()) for pos in BOOST_LOCATIONS]
+        return GameState(ball, players, boost_pads)
 
-    def up(self) -> np.ndarray:
-        cp = np.cos(self.pitch)
-        sp = np.sin(self.pitch)
-        cy = np.cos(self.yaw)
-        sy = np.sin(self.yaw)
-        cr = np.cos(self.roll)
-        sr = np.sin(self.roll)
-        return np.array([
-            -sr * sy + cr * sp * cy,
-            sr * cy + cr * sp * sy,
-            cr * cp,
-        ], dtype=np.float32)
+    def set_state(self, desired_state: GameState, shared_info: Dict[str, Any]) -> GameState:
+        self._state = desired_state
+        return self._state
 
-
-class _Player:
-    """Lightweight player wrapper used for obs/reward builders."""
-
-    def __init__(self, car: _Car):
-        self.car_data = car
-        self.team_num = car.team_num
-        self.boost_amount = 0.0
-        self.on_ground = True
-        self.has_flip = True
-        self.has_jump = True
-        self.ball_touched = False
-        self.is_demoed = False
-        self.match_demolishes = 0
-
-
-class _BoostPad:
-    def __init__(self, position: np.ndarray):
-        self.position = position
-        self.is_active = True
+    def close(self) -> None:
+        pass
 
 
-class _GameState:
-    """Container storing dynamic game information."""
+class StateSetterMutator(APIStateMutator[GameState]):
+    """Adapter turning a ModernStateSetter into a StateMutator."""
 
-    def __init__(self, ball: _Ball, players: List[_Player], boost_pads: List[_BoostPad]):
-        self.ball = ball
-        self.players = players
-        self.blue_score = 0
-        self.orange_score = 0
-        self.game_seconds_remaining = 300.0
-        self.is_overtime = False
-        self.is_kickoff_pause = False
-        self.boost_pads = boost_pads
+    def __init__(self, setter: ModernStateSetter):
+        self._setter = setter
+
+    def apply(self, state: GameState, shared_info: Dict[str, Any]) -> None:
+        wrapper = type("StateWrapper", (), {})()
+        wrapper.cars = [p.car_data for p in state.players]
+        wrapper.ball = state.ball
+        self._setter.reset(wrapper)
+
+
+class RewardAdapter(APIRewardFunction[int, GameState, float]):
+    """Adapter so ModernRewardSystem matches the RLGym reward API."""
+
+    def __init__(self, reward: ModernRewardSystem):
+        self._reward = reward
+        self.prev_actions: Dict[int, np.ndarray] = {}
+
+    def reset(self, agents: List[int], initial_state: GameState, shared_info: Dict[str, Any]) -> None:
+        self._reward.reset(initial_state)
+        self.prev_actions = {a: np.zeros(CONT_DIM + DISC_DIM, dtype=np.float32) for a in agents}
+
+    def get_rewards(
+        self,
+        agents: List[int],
+        state: GameState,
+        is_terminated: Dict[int, bool],
+        is_truncated: Dict[int, bool],
+        shared_info: Dict[str, Any],
+    ) -> Dict[int, float]:
+        rewards = {}
+        for a in agents:
+            player = state.players[a]
+            rewards[a] = self._reward.get_reward(player, state, self.prev_actions[a])
+        return rewards
+
+
+class ObsBuilderAdapter(APIObsBuilder[int, np.ndarray, GameState, gym.spaces.Box]):
+    """Adapter so ModernObsBuilder conforms to the RLGym obs API."""
+
+    def __init__(self, builder: ModernObsBuilder):
+        self._builder = builder
+        self.prev_actions: Dict[int, np.ndarray] = {}
+        self._obs_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(OBS_SIZE,), dtype=np.float32)
+
+    def get_obs_space(self, agent: int) -> gym.spaces.Box:
+        return self._obs_space
+
+    def reset(self, agents: List[int], initial_state: GameState, shared_info: Dict[str, Any]) -> None:
+        self._builder.reset(initial_state)
+        self.prev_actions = {a: np.zeros(CONT_DIM + DISC_DIM, dtype=np.float32) for a in agents}
+
+    def build_obs(
+        self, agents: List[int], state: GameState, shared_info: Dict[str, Any]
+    ) -> Dict[int, np.ndarray]:
+        obs: Dict[int, np.ndarray] = {}
+        for a in agents:
+            player = state.players[a]
+            obs[a] = self._builder.build_obs(player, state, self.prev_actions[a]).astype(np.float32)
+        return obs
+
 
 class RL2v2Env(gym.Env):
-    """
-    Gymnasium Env wrapping your RLGym 2.0 match (2v2 self-play).
-    You MUST fill TODOs to call your actual RLGym v2 session/match.
-    """
+    """Gymnasium environment backed by an RLGym 2.0 session."""
+
     metadata = {"render_modes": []}
 
     def __init__(self, seed: int = 42):
         super().__init__()
         self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(OBS_SIZE,), dtype=np.float32)
-        self.action_space = gym.spaces.Dict({
-            "cont": gym.spaces.Box(low=-1.0, high=1.0, shape=(CONT_DIM,), dtype=np.float32),
-            "disc": gym.spaces.MultiBinary(DISC_DIM)
-        })
+        self.action_space = gym.spaces.Dict(
+            {
+                "cont": gym.spaces.Box(low=-1.0, high=1.0, shape=(CONT_DIM,), dtype=np.float32),
+                "disc": gym.spaces.MultiBinary(DISC_DIM),
+            }
+        )
         self.np_random, _ = gym.utils.seeding.np_random(seed)
-        self._prev_action = np.zeros(CONT_DIM + DISC_DIM, dtype=np.float32)
 
-        # Core RLGymv2-style components
-        self._obs_builder = ModernObsBuilder()
-        self._reward_fn = ModernRewardSystem()
-        self._state_setter = ModernStateSetter()
+        # Core components
+        self._obs_adapter = ObsBuilderAdapter(ModernObsBuilder())
+        self._reward_adapter = RewardAdapter(ModernRewardSystem())
+        self._state_mutator = StateSetterMutator(ModernStateSetter())
+        self._action_parser = SimpleActionParser(self.action_space)
+        self._engine = SimplePhysicsEngine()
 
-        # Create underlying physics objects shared between state wrapper and game state
-        cars = [_Car(0), _Car(0), _Car(1), _Car(1)]
-        players = [_Player(c) for c in cars]
-        boost_pads = [_BoostPad(pos.copy()) for pos in BOOST_LOCATIONS]
-        self._ball = _Ball()
+        self._match = RLGym(
+            state_mutator=self._state_mutator,
+            obs_builder=self._obs_adapter,
+            action_parser=self._action_parser,
+            reward_fn=self._reward_adapter,
+            transition_engine=self._engine,
+        )
 
-        # Wrapper used by the state setter to configure scenarios
-        self._state_wrapper = type("StateWrapper", (), {})()
-        self._state_wrapper.cars = cars
-        self._state_wrapper.ball = self._ball
-
-        # Game state object passed to builders/rewards
-        self._state = _GameState(self._ball, players, boost_pads)
-        # Two controlled players (first two on blue team)
-        self._controlled: List[_Player] = players[:2]
-
-    # Gymnasium API:
-    def reset(self, *, seed: int | None = None, options: Dict[str, Any] | None = None):
+    # Gymnasium API ------------------------------------------------------
+    def reset(
+        self, *, seed: int | None = None, options: Dict[str, Any] | None = None
+    ) -> tuple[np.ndarray, Dict[str, Any]]:
         if seed is not None:
             self.np_random, _ = gym.utils.seeding.np_random(seed)
-        # Apply state setter to configure kickoff / scenario. Some of the
-        # placeholder state setters used in tests lack full implementations,
-        # so we guard against missing methods.
-        try:
-            self._state_setter.reset(self._state_wrapper)
-        except AttributeError:
-            pass
-
-        # Builders expect the game state to be up to date after state setter
-        self._obs_builder.reset(self._state)
-        self._reward_fn.reset(self._state)
-
-        obs_vec = self._obs_builder.build_obs(self._controlled[0], self._state, self._prev_action)
+        obs_dict = self._match.reset()
+        obs_vec = obs_dict[self._engine.agents[0]]
         info: Dict[str, Any] = {}
-        self._prev_action[:] = 0
         return obs_vec.astype(np.float32), info
 
     def step(self, action: Dict[str, np.ndarray]):
-        # Unpack actions
         a_cont = np.clip(action["cont"].astype(np.float32), -1.0, 1.0)
         a_disc = action["disc"].astype(np.float32).clip(0, 1)
-        # Apply actions to controlled cars
-        for player in self._controlled:
-            car = player.car_data
-            # Orientation changes
-            car.set_rot(
-                car.pitch + a_cont[2] * 0.02,
-                car.yaw + a_cont[3] * 0.02,
-                car.roll + a_cont[4] * 0.02,
-            )
-            # Simple throttle-based velocity in forward direction
-            forward = car.forward()
-            speed = a_cont[1] * CAR_MAX_SPEED * 0.1
-            car.set_lin_vel(*(forward * speed))
-            car.set_pos(*(car.position + car.linear_velocity * 0.016))
+        rl_action = {a: {"cont": a_cont, "disc": a_disc} for a in self._engine.agents}
 
-            # Discrete actions
-            if a_disc[0]:  # jump
-                player.on_ground = False
-                player.has_jump = False
-            else:
-                player.on_ground = True
-            if a_disc[1]:  # boost
-                player.boost_amount = min(100.0, player.boost_amount + 10.0)
-            else:
-                player.boost_amount = max(0.0, player.boost_amount - 0.5)
+        # Step match
+        obs, rewards, terminated, truncated = self._match.step(rl_action)
 
-        # Advance simple game timer
-        self._state.game_seconds_remaining = max(
-            0.0, self._state.game_seconds_remaining - 0.016
-        )
+        # Current action in engine format for next step's prev_action
+        engine_act = to_rlgym(a_cont, a_disc)
+        for a in self._engine.agents:
+            self._obs_adapter.prev_actions[a] = engine_act
+            self._reward_adapter.prev_actions[a] = engine_act
 
-        # Build observation and reward
-        obs_vec = self._obs_builder.build_obs(self._controlled[0], self._state, self._prev_action)
-        reward = 0.0
-        for player in self._controlled:
-            reward += self._reward_fn.get_reward(player, self._state, self._prev_action)
-        reward /= len(self._controlled)
-
-        terminated = False
-        truncated = False
+        obs_vec = obs[self._engine.agents[0]]
+        reward = float(np.mean([rewards[a] for a in self._engine.agents]))
+        done = any(terminated.values())
+        trunc = any(truncated.values())
         info: Dict[str, Any] = {}
+        return obs_vec.astype(np.float32), reward, bool(done), bool(trunc), info
 
-        self._prev_action[:CONT_DIM] = a_cont
-        self._prev_action[CONT_DIM:] = a_disc
-        return obs_vec.astype(np.float32), float(reward), bool(terminated), bool(truncated), info
 
 def make_env(seed: int = 42) -> Callable[[], RL2v2Env]:
-    def _thunk():
+    def _thunk() -> RL2v2Env:
         return RL2v2Env(seed=seed)
+
     return _thunk
