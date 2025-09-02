@@ -30,7 +30,13 @@ from src.training.observers import SSLObsBuilder
 from src.training.rewards import SSLRewardFunction
 
 # True RLGym v2 classes and helpers
-from rlgym.rocket_league.api import GameState, Car, PhysicsObject, GameConfig
+from rlgym.rocket_league.api import (
+    GameState,
+    Car,
+    PhysicsObject,
+    GameConfig,
+    BoostPad,
+)
 from rlgym.rocket_league.common_values import (
     BOOST_LOCATIONS,
     TICKS_PER_SECOND,
@@ -45,10 +51,6 @@ from src.training.state_setters.scenarios import SCENARIOS
 # Action schema: continuous and discrete controls
 CONT_DIM = 5
 DISC_DIM = 3
-
-
-class RLMatchEnv(gym.Env):
-    """Small Rocket League environment with configurable team sizes."""
 
 
 class CarDataWrapper:
@@ -143,39 +145,15 @@ class GameStateWrapper:
 class RL2v2Env(gym.Env):
     """Small 2v2 Rocket League environment using project builders."""
 
-
-    # ``gym.Env`` expects ``metadata['render_modes']`` to advertise the
-    # available render modes.  We support RGB array rendering for the training
-    # script as well as a human mode for interactive viewing.
     metadata = {"render_modes": ["rgb_array", "human"], "render_fps": 60}
 
     def __init__(
-        self,
-        seed: int = 42,
-        render: bool = False,
-        num_players_per_team: int = 2,
-    ):
-
-        num_players_per_team: int = 2,
-        render: bool = False,
-    ):
-
-    # available render modes.  We support a single RGB array mode which is
-    # used by the training script when ``--render`` is supplied.
-    metadata = {"render_modes": ["rgb_array"], "render_fps": 60}
-
-    metadata = {"render_modes": ["rgb_array", "human"]}
-
-    def __init__(self, seed: int = 42, render: bool = False, num_players_per_team: int = 2):
-
-    metadata = {"render_modes": ["rgb_array", "human"], "render_fps": 60}
-
-    def __init__(self, seed: int = 42, render: bool = False):
- 
- 
+        self, seed: int = 42, render: bool = False, num_players_per_team: int = 2
+    ) -> None:
         super().__init__()
 
-        # Observation and action spaces mirror the production setup.
+        self._num_players_per_team = num_players_per_team
+
         self.observation_space = gym.spaces.Box(
             low=-1.0, high=1.0, shape=(OBS_SIZE,), dtype=np.float32
         )
@@ -190,34 +168,28 @@ class RL2v2Env(gym.Env):
 
         self.np_random, _ = gym.utils.seeding.np_random(seed)
 
-        # Project observation builder and reward function
         self._obs_builder = SSLObsBuilder()
         self._reward_fn = SSLRewardFunction()
 
-        # RLGym engine and done conditions
         self._engine = RocketSimEngine(rlbot_delay=False)
         self._termination_cond = GoalCondition()
-        # Short timeout keeps unit tests fast while still exercising truncation logic
         self._truncation_cond = TimeoutCondition(5.0)
 
         self._state: GameState | None = None
         self._prev_action = np.zeros(CONT_DIM + DISC_DIM, dtype=np.float32)
         self._render_enabled = render
 
-        # Scenario configuration
         self._scenario_funcs = SCENARIOS
         cfg_path = (
             Path(__file__).resolve().parents[2] / "configs" / "scenario_weights.yaml"
         )
         self._scenario_weights = self._load_scenario_weights(cfg_path)
 
-    # ------------------------------------------------------------------
-    # State helpers
     def _load_scenario_weights(self, path: Path) -> Dict[str, float]:
         """Read scenario weights from YAML configuration."""
         if yaml is None or not path.is_file():
             return {}
-        try:  # pragma: no cover - simple config loader
+        try:
             with path.open("r", encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
         except Exception:
@@ -225,20 +197,7 @@ class RL2v2Env(gym.Env):
         return {str(k): float(v) for k, v in data.items() if k in self._scenario_funcs}
 
     def _random_state(self) -> GameState:
-        """Create a randomly-initialised 2v2 RLGym ``GameState``."""
-
-        """Create a ``GameState`` from the configured scenarios.
-
-        The environment samples a scenario based on the configured weights. If
-        the selected scenario already returns a :class:`GameState` instance it is
-        used directly.  Otherwise a fallback random state is generated using the
-        internal RocketSim engine.
-        """
-
-        pads = [
-            BoostPad(position=loc.astype(np.float32))
-            for loc in common_values.BOOST_LOCATIONS
-        ]
+        """Create a scenario-driven 2v2 game state."""
 
         names = list(self._scenario_funcs.keys())
         weights = np.array(
@@ -246,7 +205,7 @@ class RL2v2Env(gym.Env):
         )
         if weights.sum() <= 0:
             weights = np.ones_like(weights)
-        weights = weights / weights.sum()
+        weights /= weights.sum()
 
         choice = self.np_random.choice(names, p=weights)
         scenario_fn = self._scenario_funcs[choice]
@@ -254,21 +213,20 @@ class RL2v2Env(gym.Env):
         if isinstance(state, GameState):
             return state
 
-        """Create a scenario-driven 2v2 game state."""
-
-        # Fallback: create a random state using the real engine
         gs = self._engine.create_base_state()
         gs.tick_count = 0
         gs.goal_scored = False
 
-        # Random ball
+        gs.boost_pads = [
+            BoostPad(position=loc.astype(np.float32)) for loc in BOOST_LOCATIONS
+        ]
+        gs.boost_pad_timers = np.zeros(len(BOOST_LOCATIONS), dtype=np.float32)
+
         ball = PhysicsObject()
         ball.position = self.np_random.uniform(-1000, 1000, size=3).astype(np.float32)
         ball.linear_velocity = self.np_random.uniform(-500, 500, size=3).astype(
             np.float32
         )
-        ball.angular_velocity = self.np_random.uniform(-5, 5, size=3).astype(np.float32)
-
         ball.angular_velocity = self.np_random.uniform(-5, 5, size=3).astype(
             np.float32
         )
@@ -277,9 +235,6 @@ class RL2v2Env(gym.Env):
         )
         gs.ball = ball
 
-        # Random cars
-
-        # Initialise four cars (two per team) with default physics
         gs.cars = {}
         total_players = 2 * self._num_players_per_team
         for i in range(total_players):
@@ -291,30 +246,8 @@ class RL2v2Env(gym.Env):
             car.on_ground = True
             car.has_flip = True
             car.has_jumped = False
-            car.is_holding_jump = False
-            car.jump_time = 0.0
-            car.has_flipped = False
-            car.has_double_jumped = False
-            car.air_time_since_jump = 0.0
-            car.flip_time = 0.0
-            car.flip_torque = np.zeros(3, dtype=np.float32)
-            car.is_autoflipping = False
-            car.autoflip_timer = 0.0
-            car.autoflip_direction = 1.0
-            car.on_ground = True
-            car.has_flip = True
             car.is_demoed = False
             phys = PhysicsObject()
-            phys.position = self.np_random.uniform(-1000, 1000, size=3).astype(np.float32)
-            phys.linear_velocity = self.np_random.uniform(-500, 500, size=3).astype(np.float32)
-            phys.angular_velocity = self.np_random.uniform(-5, 5, size=3).astype(np.float32)
-            phys.euler_angles = self.np_random.uniform(-np.pi, np.pi, size=3).astype(np.float32)
-            phys.forward = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-            phys.up = np.array([0.0, 0.0, 1.0], dtype=np.float32)
-            phys.pitch = 0.0
-            phys.yaw = 0.0
-            phys.roll = 0.0
-
             phys.position = self.np_random.uniform(-1000, 1000, size=3).astype(
                 np.float32
             )
@@ -327,28 +260,16 @@ class RL2v2Env(gym.Env):
             phys.euler_angles = self.np_random.uniform(-np.pi, np.pi, size=3).astype(
                 np.float32
             )
+            phys.forward = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+            phys.up = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+            phys.pitch = 0.0
+            phys.yaw = 0.0
+            phys.roll = 0.0
             car.physics = phys
-
-            car.is_demoed = False
-            car.physics = PhysicsObject()
             gs.cars[i] = car
 
-        gs.boost_pad_timers = np.zeros(len(BOOST_LOCATIONS), dtype=np.float32)
         gs.config = GameConfig()
-
         return gs
-
-        names = list(self._scenario_funcs.keys())
-        weights = np.array(
-            [self._scenario_weights.get(n, 1.0) for n in names], dtype=float
-        )
-        if weights.sum() <= 0:
-            weights = np.ones_like(weights)
-        weights = weights / weights.sum()
-
-        choice = self.np_random.choice(names, p=weights)
-        scenario_fn = self._scenario_funcs[choice]
-        return scenario_fn(self.np_random, gs)
 
     # ------------------------------------------------------------------
     # Gym API
@@ -412,48 +333,7 @@ class RL2v2Env(gym.Env):
 
     # ------------------------------------------------------------------
     # Rendering
-    def render(self, mode: str = "rgb_array"):
-        """Render a simple top-down view of the field.
-
-        Parameters
-        ----------
-        mode:
-            Only ``"rgb_array"`` is supported.  The function returns a
-            ``(H, W, 3)`` ``uint8`` array representing the frame.
-        """
-
-        if mode != "rgb_array":
-            raise NotImplementedError(f"Unsupported render mode: {mode}")
-        if self._state is None:
-            raise RuntimeError("Environment must be reset before rendering")
-
-        width, height = 320, 240
-        frame = np.zeros((height, width, 3), dtype=np.uint8)
-        frame[:] = (40, 160, 40)  # simple green field
-
-        def _project(pos: np.ndarray) -> tuple[int, int]:
-            # Map world coordinates roughly spanning [-3000, 3000] in X and
-            # [-4000, 4000] in Y to pixel coordinates.
-            x = int((np.clip(pos[0], -3000, 3000) + 3000) / 6000 * width)
-            y = int((np.clip(pos[1], -4000, 4000) + 4000) / 8000 * height)
-            return x, height - y - 1  # origin at bottom left
-
-        # Draw players
-        for player in self._state.players:
-            px, py = _project(player.car_data.position)
-            color = (255, 0, 0) if player.team_num == 0 else (0, 0, 255)
-            x0, x1 = max(0, px - 2), min(width, px + 3)
-            y0, y1 = max(0, py - 2), min(height, py + 3)
-            frame[y0:y1, x0:x1] = color
-
-        # Draw ball
-        bx, by = _project(self._state.ball.position)
-        x0, x1 = max(0, bx - 2), min(width, bx + 3)
-        y0, y1 = max(0, by - 2), min(height, by + 3)
-        frame[y0:y1, x0:x1] = (255, 255, 255)
-
-
- 
+    def render(self, mode: str = "rgb_array") -> np.ndarray:
         if not self._render_enabled:
             raise RuntimeError("Rendering disabled; initialise with render=True")
         if mode not in self.metadata["render_modes"]:
@@ -464,7 +344,7 @@ class RL2v2Env(gym.Env):
         size = 256
         frame = np.zeros((size, size, 3), dtype=np.uint8)
 
-        def to_px(vec):
+        def to_px(vec: np.ndarray) -> tuple[int, int]:
             x = int((vec[0] + 2000) / 4000 * (size - 1))
             y = int((vec[1] + 2000) / 4000 * (size - 1))
             return x, y
@@ -485,8 +365,6 @@ class RL2v2Env(gym.Env):
             except Exception:
                 pass
         return frame
-
-
 
 
 def make_env(seed: int = 42, render: bool = False) -> Callable[[], RL2v2Env]:
