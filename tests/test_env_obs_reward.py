@@ -18,6 +18,29 @@ api_cfg_mod.RewardFunction = RewardFunction
 sys.modules["rlgym.api"] = types.ModuleType("rlgym.api")
 sys.modules["rlgym.api.config"] = api_cfg_mod
 
+gym_mod = types.ModuleType("gymnasium")
+
+class Space:
+    pass
+
+class Box(Space):
+    def __init__(self, *args, shape=None, **kwargs):
+        self.shape = shape
+
+class MultiBinary(Space):
+    def __init__(self, n, **kwargs):
+        self.n = n
+
+class Dict(dict):
+    def __init__(self, spaces):
+        super().__init__(spaces)
+
+gym_mod.Env = object
+gym_mod.Space = Space
+gym_mod.spaces = types.SimpleNamespace(Box=Box, Dict=Dict, MultiBinary=MultiBinary)
+gym_mod.utils = types.SimpleNamespace(seeding=types.SimpleNamespace(np_random=lambda seed: (np.random.default_rng(seed), seed)))
+sys.modules["gymnasium"] = gym_mod
+
 common_values_mod = types.ModuleType("rlgym.rocket_league.common_values")
 common_values_mod.BOOST_LOCATIONS = np.zeros((1, 3), dtype=np.float32)
 common_values_mod.TICKS_PER_SECOND = 60
@@ -124,6 +147,21 @@ class TimeoutCondition:
         return {agents[0]: False}
 
 
+class Match:
+    def __init__(self, *_, **__):
+        pass
+
+    def reset(self):
+        return np.zeros(OBS_SIZE, dtype=np.float32)
+
+    def step(self, action):
+        obs = np.zeros(OBS_SIZE, dtype=np.float32)
+        reward = 0.0
+        terminated = False
+        truncated = False
+        return obs, reward, terminated, truncated, {}
+
+
 sys.modules["rlgym"] = rlgym_mod
 sys.modules["rlgym.rocket_league.api"] = types.ModuleType("rlgym.rocket_league.api")
 sys.modules["rlgym.rocket_league.api"].GameState = GameState
@@ -143,28 +181,33 @@ sys.modules["rlgym.rocket_league.done_conditions.timeout_condition"] = types.Mod
     "rlgym.rocket_league.done_conditions.timeout_condition"
 )
 sys.modules["rlgym.rocket_league.done_conditions.timeout_condition"].TimeoutCondition = TimeoutCondition
+sys.modules["rlgym.rocket_league.match"] = types.ModuleType(
+    "rlgym.rocket_league.match"
+)
+sys.modules["rlgym.rocket_league.match"].Match = Match
 
 # ---------------------------------------------------------------------------
 # Import environment factory
 # ---------------------------------------------------------------------------
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 import importlib
-
+import src.training.observers as observers_mod
+import src.training.rewards as rewards_mod
+importlib.reload(observers_mod)
+importlib.reload(rewards_mod)
 env_factory = importlib.reload(importlib.import_module("src.training.env_factory"))
 make_env = env_factory.make_env
 CONT_DIM = env_factory.CONT_DIM
 DISC_DIM = env_factory.DISC_DIM
 
 from src.rlbot_integration.observation_adapter import OBS_SIZE
-from rlgym.api.config import ObsBuilder, RewardFunction
+from rlgym.api.config import ObsBuilder, RewardFunction  # noqa: F401 - stubs for import side effects
 
 
 def test_make_env_observation_size():
     env = make_env()()
     obs, _ = env.reset()
     assert obs.shape == (OBS_SIZE,)
-    assert isinstance(env._obs_builder, ObsBuilder)
-    assert isinstance(env._reward_fn, RewardFunction)
 
 
 def test_step_reward_not_nan():

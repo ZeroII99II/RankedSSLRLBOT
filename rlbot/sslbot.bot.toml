@@ -1,0 +1,11 @@
+[settings]
+agent_id = "sslbot"
+name = "SSLBot"
+hivemind = true
+run_command = "python -m src.rlbot_integration.bot"
+run_command_linux = "python -m src.rlbot_integration.bot"
+
+[details]
+description = "An SSL-level Rocket League bot trained with reinforcement learning."
+developer = "SSL Bot Team"
+language = "Python"
