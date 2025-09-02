@@ -49,13 +49,6 @@ class PPOTrainer:
         self.seed = training_cfg.get('seed', 0)
         self.seed = training_cfg.get('seed', 42)
 
-        # Seed all RNGs
-        random.seed(self.seed)
-        np.random.seed(self.seed)
-        torch.manual_seed(self.seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(self.seed)
-
         self.curriculum = CurriculumManager(curriculum_path)
 
         # Setup device
@@ -613,6 +606,7 @@ def main():
             trainer.env, seed=int(trainer.np_rng.integers(0, 2**32))
         )
         for _ in range(args.dry_run):
+            trainer.env.action_space.seed(int(trainer.np_rng.integers(0, 2**32)))
             action = trainer.env.action_space.sample()
             obs, _, done, _ = step_env(trainer.env, action)
             if done:
