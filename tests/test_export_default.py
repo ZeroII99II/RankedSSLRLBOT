@@ -13,7 +13,7 @@ def test_export_default_path(tmp_path, monkeypatch):
     # Use temporary working directory
     monkeypatch.chdir(tmp_path)
 
-    # Create dummy build_policy
+    # Create dummy policy builder
     from src.training import policy as policy_module
 
     class TinyPolicy(torch.nn.Module):
@@ -33,7 +33,12 @@ def test_export_default_path(tmp_path, monkeypatch):
 
     # Save checkpoint for tiny model
     ckpt_path = tmp_path / "ckpt.pt"
-    torch.save(build_policy(export.OBS_DIM_DEFAULT, export.CONT_DIM, export.DISC_DIM).state_dict(), ckpt_path)
+    tiny_policy = policy_module.create_ssl_policy({
+        "obs_dim": export.OBS_DIM_DEFAULT,
+        "continuous_actions": export.CONT_DIM,
+        "discrete_actions": export.DISC_DIM,
+    })
+    torch.save(tiny_policy.state_dict(), ckpt_path)
 
     # Run export script with default output path
     monkeypatch.setattr(sys, "argv", ["export.py", "--ckpt", str(ckpt_path)])
