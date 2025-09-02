@@ -9,38 +9,21 @@ from __future__ import annotations
 import numpy as np
 from typing import Any, Dict, List, Optional, Tuple
 
-try:  # Use real RLGym when available
-    from rlgym.api.config import RewardFunction
-    from rlgym.rocket_league.common_values import (
-        BALL_MAX_SPEED,
-        CAR_MAX_SPEED,
-        CEILING_Z,
-        BALL_RADIUS,
-        BLUE_GOAL_BACK,
-        BLUE_GOAL_CENTER,
-        ORANGE_GOAL_BACK,
-        ORANGE_GOAL_CENTER,
-        GOAL_HEIGHT,
-        CAR_MAX_ANG_VEL,
-        ORANGE_TEAM,
-    )
-    from rlgym.rocket_league.api import GameState
-except Exception:  # pragma: no cover - compatibility fallback
-    from src.compat.rlgym_v2_compat.base import RewardFunction
-    from src.compat.rlgym_v2_compat import common_values as cv
-
-    BALL_MAX_SPEED = cv.BALL_MAX_SPEED
-    CAR_MAX_SPEED = cv.CAR_MAX_SPEED
-    CEILING_Z = cv.CEILING_Z
-    BALL_RADIUS = cv.BALL_RADIUS
-    BLUE_GOAL_BACK = cv.BLUE_GOAL_BACK
-    BLUE_GOAL_CENTER = cv.BLUE_GOAL_CENTER
-    ORANGE_GOAL_BACK = cv.ORANGE_GOAL_BACK
-    ORANGE_GOAL_CENTER = cv.ORANGE_GOAL_CENTER
-    GOAL_HEIGHT = cv.GOAL_HEIGHT
-    CAR_MAX_ANG_VEL = cv.CAR_MAX_ANG_VEL
-    ORANGE_TEAM = cv.ORANGE_TEAM
-    from src.compat.rlgym_v2_compat.game_state import GameState
+from rlgym.api.config import RewardFunction
+from rlgym.rocket_league.common_values import (
+    BALL_MAX_SPEED,
+    CAR_MAX_SPEED,
+    CEILING_Z,
+    BALL_RADIUS,
+    BLUE_GOAL_BACK,
+    BLUE_GOAL_CENTER,
+    ORANGE_GOAL_BACK,
+    ORANGE_GOAL_CENTER,
+    GOAL_HEIGHT,
+    CAR_MAX_ANG_VEL,
+    ORANGE_TEAM,
+)
+from rlgym.rocket_league.api import GameState
 
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
