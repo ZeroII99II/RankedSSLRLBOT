@@ -2,6 +2,8 @@ import sys, types, numpy as np
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
+import src
+import src.training  # ensure training package is loaded before stubbing
 
 # Stub out rlgym modules used by trainer
 rlgym_mod = types.ModuleType("rlgym")
@@ -85,6 +87,39 @@ env_factory_mod = types.ModuleType("src.training.env_factory")
 env_factory_mod.CONT_DIM = 5
 env_factory_mod.DISC_DIM = 3
 sys.modules.setdefault("src.training.env_factory", env_factory_mod)
+
+# Stub tensorboard to avoid heavy dependency
+tensorboard_mod = types.ModuleType("torch.utils.tensorboard")
+
+class SummaryWriter:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def add_scalar(self, *args, **kwargs):
+        pass
+
+    def close(self):
+        pass
+
+tensorboard_mod.SummaryWriter = SummaryWriter
+sys.modules.setdefault("torch.utils.tensorboard", tensorboard_mod)
+
+# Stub gym modules required by gym_compat
+gym_mod = types.ModuleType("gym")
+class Space:
+    pass
+
+class Box(Space):
+    def __init__(self, low, high, shape, dtype=None):
+        self.low = low
+        self.high = high
+        self.shape = shape
+        self.dtype = dtype
+
+gym_mod.Space = Space
+gym_mod.spaces = types.SimpleNamespace(Box=Box)
+sys.modules.setdefault("gym", gym_mod)
+sys.modules.setdefault("gymnasium", gym_mod)
 
 from src.training.env_factory import CONT_DIM, DISC_DIM
 
@@ -222,11 +257,11 @@ def test_collect_one_step(monkeypatch):
     # _compute_advantages expects float done flags
     rollouts['dones'] = rollouts['dones'].float()
 
-    # Update policy and verify returned loss metrics
+    # Update policy and verify returned loss metrics are finite
     losses = trainer._update_policy(rollouts)
-    assert set(['policy_loss', 'value_loss', 'entropy_loss']).issubset(losses)
-    for value in losses.values():
-        assert np.isfinite(value)
+    for key in ('policy_loss', 'value_loss', 'entropy_loss'):
+        assert key in losses
+        assert np.isfinite(losses[key])
 
 
 def test_collect_rollout_without_done(monkeypatch):

@@ -19,3 +19,23 @@ def test_policy_and_critic_output_shapes():
 
     value = critic(obs)
     assert value.shape == (2, 1)
+
+
+def test_policy_and_critic_custom_shapes():
+    config = {
+        "obs_dim": 10,
+        "continuous_actions": 2,
+        "discrete_actions": 4,
+        "hidden_sizes": [10],
+        "use_attention": False,
+    }
+    policy = create_ssl_policy(config)
+    critic = create_ssl_critic(config)
+
+    obs = torch.zeros(3, 10)
+    policy_out = policy(obs)
+    assert policy_out["continuous_actions"].shape == (3, 2)
+    assert policy_out["discrete_actions"].shape == (3, 4)
+
+    value = critic(obs)
+    assert value.shape == (3, 1)
