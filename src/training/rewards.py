@@ -7,10 +7,10 @@ on basic mechanics vs advanced aerial/wall plays.
 from __future__ import annotations
 
 import numpy as np
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-from src.compat.rlgym_v2_compat import RewardFunction
-from src.compat.rlgym_v2_compat.common_values import (
+from rlgym.api.config import RewardFunction
+from rlgym.rocket_league.common_values import (
     BALL_MAX_SPEED,
     CAR_MAX_SPEED,
     CEILING_Z,
@@ -23,6 +23,7 @@ from src.compat.rlgym_v2_compat.common_values import (
     CAR_MAX_ANG_VEL,
     ORANGE_TEAM,
 )
+from rlgym.rocket_league.api import GameState
 
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
@@ -226,7 +227,7 @@ class ModernRewardSystem(RewardFunction):
         }
         self.touch_history = {i: [] for i in range(len(initial_state.players))}
     
-    def get_reward(self, player: PlayerData, state: GameState, previous_action: np.ndarray) -> float:
+    def get_reward(self, player: Any, state: GameState, previous_action: np.ndarray) -> float:
         """Calculate reward for a single player."""
         if self.last_state is None:
             return 0.0
@@ -267,14 +268,14 @@ class ModernRewardSystem(RewardFunction):
         
         return float(reward)
     
-    def _get_player_index(self, player: PlayerData, state: GameState) -> Optional[int]:
+    def _get_player_index(self, player: Any, state: GameState) -> Optional[int]:
         """Get player index in state.players list."""
         for i, p in enumerate(state.players):
             if (p.car_data.position == player.car_data.position).all():
                 return i
         return None
     
-    def _ball_to_goal_velocity_reward(self, player: PlayerData, state: GameState) -> float:
+    def _ball_to_goal_velocity_reward(self, player: Any, state: GameState) -> float:
         """Reward for ball velocity toward opponent goal."""
         ball_vel = state.ball.linear_velocity
         ball_pos = state.ball.position
@@ -297,7 +298,7 @@ class ModernRewardSystem(RewardFunction):
             
         return 0.0
     
-    def _touch_quality_reward(self, player: PlayerData, state: GameState, player_idx: int) -> float:
+    def _touch_quality_reward(self, player: Any, state: GameState, player_idx: int) -> float:
         """Reward for high-quality ball touches."""
         if not player.ball_touched:
             return 0.0
@@ -327,7 +328,7 @@ class ModernRewardSystem(RewardFunction):
                     
         return 0.0
     
-    def _recovery_reward(self, player: PlayerData, state: GameState, player_idx: int) -> float:
+    def _recovery_reward(self, player: Any, state: GameState, player_idx: int) -> float:
         """Reward for quick recoveries (upright, wheels on ground)."""
         if self.last_state is None:
             return 0.0
@@ -348,7 +349,7 @@ class ModernRewardSystem(RewardFunction):
             
         return self.weights['recovery'] * (upright_reward + wheels_reward)
     
-    def _boost_economy_reward(self, player: PlayerData, state: GameState, player_idx: int) -> float:
+    def _boost_economy_reward(self, player: Any, state: GameState, player_idx: int) -> float:
         """Reward for efficient boost usage."""
         if self.last_state is None:
             return 0.0
@@ -373,7 +374,7 @@ class ModernRewardSystem(RewardFunction):
                 
         return 0.0
     
-    def _demo_rewards(self, player: PlayerData, state: GameState, player_idx: int) -> float:
+    def _demo_rewards(self, player: Any, state: GameState, player_idx: int) -> float:
         """Reward for demo evasion and opportunities."""
         if self.last_state is None:
             return 0.0
@@ -391,7 +392,7 @@ class ModernRewardSystem(RewardFunction):
             
         return reward
     
-    def _shadowing_reward(self, player: PlayerData, state: GameState) -> float:
+    def _shadowing_reward(self, player: Any, state: GameState) -> float:
         """Reward for good defensive shadowing."""
         ball_pos = state.ball.position
         car_pos = player.car_data.position
@@ -423,19 +424,19 @@ class ModernRewardSystem(RewardFunction):
             
         return 0.0
     
-    def _save_quality_reward(self, player: PlayerData, state: GameState) -> float:
+    def _save_quality_reward(self, player: Any, state: GameState) -> float:
         """Reward for high-quality saves."""
         # This would need more complex logic to detect save situations
         # For now, return 0
         return 0.0
     
-    def _clear_quality_reward(self, player: PlayerData, state: GameState) -> float:
+    def _clear_quality_reward(self, player: Any, state: GameState) -> float:
         """Reward for high-quality clears."""
         # This would need more complex logic to detect clear situations
         # For now, return 0
         return 0.0
     
-    def _aerial_intercept_reward(self, player: PlayerData, state: GameState) -> float:
+    def _aerial_intercept_reward(self, player: Any, state: GameState) -> float:
         """Reward for successful aerial interceptions."""
         if not player.ball_touched or player.on_ground:
             return 0.0
@@ -453,7 +454,7 @@ class ModernRewardSystem(RewardFunction):
             
         return 0.0
     
-    def _backboard_read_reward(self, player: PlayerData, state: GameState) -> float:
+    def _backboard_read_reward(self, player: Any, state: GameState) -> float:
         """Reward for successful backboard reads."""
         if not player.ball_touched:
             return 0.0
@@ -474,7 +475,7 @@ class ModernRewardSystem(RewardFunction):
                 
         return 0.0
     
-    def _double_tap_setup_reward(self, player: PlayerData, state: GameState) -> float:
+    def _double_tap_setup_reward(self, player: Any, state: GameState) -> float:
         """Reward for setting up double taps."""
         if not player.ball_touched:
             return 0.0
@@ -497,7 +498,7 @@ class ModernRewardSystem(RewardFunction):
                 
         return 0.0
     
-    def _flip_reset_reward(self, player: PlayerData, state: GameState) -> float:
+    def _flip_reset_reward(self, player: Any, state: GameState) -> float:
         """Reward for successful flip resets."""
         if (player.ball_touched and 
             player.has_flip and 
@@ -515,7 +516,7 @@ class ModernRewardSystem(RewardFunction):
                 
         return 0.0
     
-    def _fast_aerial_reward(self, player: PlayerData, state: GameState) -> float:
+    def _fast_aerial_reward(self, player: Any, state: GameState) -> float:
         """Reward for fast aerials."""
         if not player.ball_touched or player.on_ground:
             return 0.0
@@ -537,7 +538,7 @@ class ModernRewardSystem(RewardFunction):
             
         return 0.0
     
-    def _own_goal_risk_penalty(self, player: PlayerData, state: GameState) -> float:
+    def _own_goal_risk_penalty(self, player: Any, state: GameState) -> float:
         """Penalty for actions that risk own goals."""
         ball_vel = state.ball.linear_velocity
         ball_pos = state.ball.position
@@ -560,7 +561,7 @@ class ModernRewardSystem(RewardFunction):
                 
         return 0.0
     
-    def _panic_jump_penalty(self, player: PlayerData, state: GameState, previous_action: np.ndarray) -> float:
+    def _panic_jump_penalty(self, player: Any, state: GameState, previous_action: np.ndarray) -> float:
         """Penalty for panic jumps (jumping when not necessary)."""
         if len(previous_action) < 6 or previous_action[5] <= 0:  # No jump
             return 0.0
@@ -576,7 +577,7 @@ class ModernRewardSystem(RewardFunction):
             
         return 0.0
     
-    def _bad_touch_penalty(self, player: PlayerData, state: GameState) -> float:
+    def _bad_touch_penalty(self, player: Any, state: GameState) -> float:
         """Penalty for bad touches (hitting ball into own half)."""
         if not player.ball_touched:
             return 0.0
@@ -594,7 +595,7 @@ class ModernRewardSystem(RewardFunction):
                 
         return 0.0
     
-    def _idle_penalty(self, player: PlayerData, state: GameState, player_idx: int) -> float:
+    def _idle_penalty(self, player: Any, state: GameState, player_idx: int) -> float:
         """Penalty for being idle (not moving)."""
         if self.last_state is None:
             return 0.0
@@ -609,7 +610,7 @@ class ModernRewardSystem(RewardFunction):
             
         return 0.0
     
-    def _update_state_tracking(self, player: PlayerData, state: GameState, player_idx: int):
+    def _update_state_tracking(self, player: Any, state: GameState, player_idx: int):
         """Update state tracking variables."""
         self.last_state = state
         self.last_ball_vel = state.ball.linear_velocity.copy()

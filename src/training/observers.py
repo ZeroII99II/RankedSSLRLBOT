@@ -15,14 +15,14 @@ from src.utils.gym_compat import gym
 Space = gym.Space
 Box = gym.spaces.Box
 
-# Lightweight compatibility layer instead of depending on full rlgym
-from src.compat.rlgym_v2_compat import ObsBuilder
-from src.compat.rlgym_v2_compat.common_values import (
+from rlgym.api.config import ObsBuilder
+from rlgym.rocket_league.common_values import (
     BOOST_LOCATIONS,
     CEILING_Z,
     BALL_RADIUS,
     CAR_MAX_SPEED,
 )
+from rlgym.rocket_league.api import GameState
 
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
@@ -90,7 +90,7 @@ class ModernObsBuilder(ObsBuilder):
         """Reset observation builder state."""
         pass
         
-    def build_obs(self, player: PlayerData, state: GameState, previous_action: np.ndarray) -> np.ndarray:
+    def build_obs(self, player: Any, state: GameState, previous_action: np.ndarray) -> np.ndarray:
         """Build observation vector for a single player."""
         obs = np.zeros(self.obs_dim, dtype=np.float32)
         idx = 0
@@ -388,7 +388,7 @@ class ModernObsBuilder(ObsBuilder):
             
         return obs
     
-    def _calculate_wall_read_angle(self, player: PlayerData, ball_pos: np.ndarray, ball_vel: np.ndarray) -> float:
+    def _calculate_wall_read_angle(self, player: Any, ball_pos: np.ndarray, ball_vel: np.ndarray) -> float:
         """Calculate angle for wall read opportunity."""
         car_pos = player.car_data.position
         
@@ -403,14 +403,14 @@ class ModernObsBuilder(ObsBuilder):
                     return np.clip(angle, -1, 1)
         return 0.0
     
-    def _get_ball_owner(self, players: List[PlayerData], ball_pos: np.ndarray) -> int:
+    def _get_ball_owner(self, players: List[Any], ball_pos: np.ndarray) -> int:
         """Determine which team has ball possession."""
         closest_player = min(players, key=lambda p: np.linalg.norm(p.car_data.position - ball_pos))
         if np.linalg.norm(closest_player.car_data.position - ball_pos) < 200:
             return closest_player.team_num
         return None
     
-    def _calculate_pressure(self, player: PlayerData, players: List[PlayerData], ball_pos: np.ndarray) -> float:
+    def _calculate_pressure(self, player: Any, players: List[Any], ball_pos: np.ndarray) -> float:
         """Calculate pressure level on the ball."""
         opponents = [p for p in players if p.team_num != player.team_num]
         if not opponents:
