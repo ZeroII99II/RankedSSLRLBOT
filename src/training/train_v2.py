@@ -13,11 +13,17 @@ def main():
     ap.add_argument("--ckpt_dir", type=str, default="models/checkpoints")
     ap.add_argument("--tensorboard", type=str, default="runs/ssl_v2")
     ap.add_argument("--render", action="store_true", help="Render a single env in a viewer thread")
+
+    ap.add_argument("--render", action="store_true", help="Enable environment rendering")
+ 
     args = ap.parse_args()
 
     os.makedirs(args.ckpt_dir, exist_ok=True)
 
-    env_fns = [make_env(seed=args.seed+i) for i in range(args.envs)]
+    env_fns = [
+        make_env(seed=args.seed + i, render=args.render and i == 0)
+        for i in range(args.envs)
+    ]
     vec = make_vec(env_fns)
     policy_kwargs = make_policy_kwargs()
 
@@ -58,6 +64,16 @@ def main():
                 plt.pause(0.01)
                 if terminated or truncated:
                     obs, _ = env.reset()
+    if args.render:
+        import threading, time
+
+        def _viewer():
+            while True:
+                try:
+                    vec.envs[0].render("human")
+                    time.sleep(1 / 60)
+                except Exception:
+                    break
 
         threading.Thread(target=_viewer, daemon=True).start()
 

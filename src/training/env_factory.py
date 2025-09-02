@@ -13,8 +13,14 @@ simulation stack.
 """
 
 from typing import Callable, Dict, Any
+from pathlib import Path
 
 import numpy as np
+
+try:  # pragma: no cover - fallback if PyYAML is not installed
+    import yaml
+except Exception:  # pragma: no cover
+    yaml = None
 
 from src.utils.gym_compat import gym
 from src.rlbot_integration.observation_adapter import OBS_SIZE
@@ -28,6 +34,7 @@ from src.compat.rlgym_v2_compat.game_state import (
     BoostPad,
 )
 from src.compat.rlgym_v2_compat import common_values
+from src.training.state_setters.scenarios import SCENARIOS
 
 
 # Action schema: continuous and discrete controls
@@ -43,7 +50,9 @@ class RL2v2Env(gym.Env):
     # used by the training script when ``--render`` is supplied.
     metadata = {"render_modes": ["rgb_array"], "render_fps": 60}
 
-    def __init__(self, seed: int = 42):
+    metadata = {"render_modes": ["rgb_array", "human"]}
+
+    def __init__(self, seed: int = 42, render: bool = False):
         super().__init__()
 
         # Observation and action spaces mirror the production setup.
@@ -67,33 +76,37 @@ class RL2v2Env(gym.Env):
 
         self._state: GameState | None = None
         self._prev_action = np.zeros(CONT_DIM + DISC_DIM, dtype=np.float32)
+        self._render_enabled = render
+
+        # Scenario configuration
+        self._scenario_funcs = SCENARIOS
+        cfg_path = Path(__file__).resolve().parents[2] / "configs" / "scenario_weights.yaml"
+        self._scenario_weights = self._load_scenario_weights(cfg_path)
 
     # ------------------------------------------------------------------
     # State helpers
+    def _load_scenario_weights(self, path: Path) -> Dict[str, float]:
+        """Read scenario weights from YAML configuration."""
+        if yaml is None or not path.is_file():
+            return {}
+        try:  # pragma: no cover - simple config loader
+            with path.open("r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+        except Exception:
+            return {}
+        return {str(k): float(v) for k, v in data.items() if k in self._scenario_funcs}
+
     def _random_state(self) -> GameState:
-        """Create a randomly-initialised 2v2 game state."""
-        players = []
-        for i in range(4):
-            team = 0 if i < 2 else 1
-            car = CarData(team_num=team)
-            car.set_pos(*self.np_random.uniform(-1000, 1000, size=3))
-            car.set_lin_vel(*self.np_random.uniform(-500, 500, size=3))
-            car.set_ang_vel(*self.np_random.uniform(-5, 5, size=3))
-            car.set_rot(*self.np_random.uniform(-np.pi, np.pi, size=3))
-            player = PlayerData(
-                car_data=car,
-                team_num=team,
-                boost_amount=float(self.np_random.uniform(0, 100)),
-            )
-            players.append(player)
+        """Create a scenario-driven 2v2 game state."""
+        names = list(self._scenario_funcs.keys())
+        weights = np.array([self._scenario_weights.get(n, 1.0) for n in names], dtype=float)
+        if weights.sum() <= 0:
+            weights = np.ones_like(weights)
+        weights = weights / weights.sum()
 
-        ball = BallData()
-        ball.set_pos(*self.np_random.uniform(-1000, 1000, size=3))
-        ball.set_lin_vel(*self.np_random.uniform(-500, 500, size=3))
-
-        pads = [BoostPad(position=loc.astype(np.float32)) for loc in common_values.BOOST_LOCATIONS]
-
-        return GameState(ball=ball, players=players, boost_pads=pads)
+        choice = self.np_random.choice(names, p=weights)
+        scenario_fn = self._scenario_funcs[choice]
+        return scenario_fn(self.np_random)
 
     # ------------------------------------------------------------------
     # Gym API
@@ -183,14 +196,45 @@ class RL2v2Env(gym.Env):
         y0, y1 = max(0, by - 2), min(height, by + 3)
         frame[y0:y1, x0:x1] = (255, 255, 255)
 
+
+        if not self._render_enabled:
+            raise RuntimeError("Rendering disabled; initialise with render=True")
+        if mode not in self.metadata["render_modes"]:
+            raise ValueError(f"Unsupported render mode: {mode}")
+        if self._state is None:
+            return np.zeros((256, 256, 3), dtype=np.uint8)
+
+        size = 256
+        frame = np.zeros((size, size, 3), dtype=np.uint8)
+
+        def to_px(vec):
+            x = int((vec[0] + 2000) / 4000 * (size - 1))
+            y = int((vec[1] + 2000) / 4000 * (size - 1))
+            return x, y
+
+        bx, by = to_px(self._state.ball.position)
+        frame[by, bx] = (255, 255, 255)
+        for p in self._state.players:
+            px, py = to_px(p.car_data.position)
+            color = (0, 0, 255) if p.team_num == 0 else (255, 0, 0)
+            frame[py, px] = color
+
+        if mode == "human":
+            try:
+                import cv2  # type: ignore
+
+                cv2.imshow("RL2v2Env", frame)
+                cv2.waitKey(1)
+            except Exception:
+                pass
         return frame
 
 
-def make_env(seed: int = 42) -> Callable[[], RL2v2Env]:
+def make_env(seed: int = 42, render: bool = False) -> Callable[[], RL2v2Env]:
     """Return a thunk that creates a seeded ``RL2v2Env`` instance."""
 
     def _thunk() -> RL2v2Env:
-        return RL2v2Env(seed=seed)
+        return RL2v2Env(seed=seed, render=render)
 
     return _thunk
 
