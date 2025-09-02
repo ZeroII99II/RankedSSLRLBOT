@@ -70,12 +70,16 @@ sys.modules.setdefault("rlgym.rocket_league", rocket_mod)
 sys.modules.setdefault("rlgym.rocket_league.common_values", common_values_mod)
 sys.modules.setdefault("rlgym.rocket_league.api", api_rl_mod)
 
+import src.training.state_setters as state_setters_mod
+state_setters_mod.SSLStateSetter = object
+
 from src.training.train import PPOTrainer
 
 
 class DummyEnv:
     def __init__(self):
         self.step_count = 0
+        self.action_space = type('AS', (), {'seed': lambda self, val: None})()
 
     def reset(self):
         return np.zeros(107, dtype=np.float32), {}
@@ -92,6 +96,7 @@ class DummyEnv:
 class NonTerminatingEnv:
     def __init__(self):
         self.step_count = 0
+        self.action_space = type('AS', (), {'seed': lambda self, val: None})()
 
     def reset(self):
         return np.zeros(107, dtype=np.float32), {}

@@ -1,8 +1,9 @@
 import sys
 import types
 from pathlib import Path
-
 import numpy as np
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 # ---------------------------------------------------------------------------
 # Stub rlgym modules for env_factory

@@ -1,8 +1,18 @@
 import sys
+
 import types
 from pathlib import Path
 
 import numpy as np
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+
+from src.training.env_factory import make_env, CONT_DIM, DISC_DIM
+from rlgym.api.config import ObsBuilder, RewardFunction
+
+
+def test_reset_returns_obs_vec():
+    env = make_env()()
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +174,8 @@ def test_reset_returns_obs_vec():
 
 
 def test_step_produces_float_reward():
+    env = make_env()()
+
     env = RL2v2Env()
     env.reset()
     action = {

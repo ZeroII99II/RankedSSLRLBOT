@@ -2,6 +2,9 @@ import sys
 import types
 from pathlib import Path
 
+import sys
+from pathlib import Path
+import types
 import numpy as np
 import torch
 
@@ -9,12 +12,14 @@ import torch
 # Ensure repo root on path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
+# Minimal stubs for rlgym utils required by the trainer
+rlgym_utils = types.ModuleType("rlgym.utils")
+
 # ---------------------------------------------------------------------------
 # Stub minimal rlgym modules so PPOTrainer and env can be imported
 # ---------------------------------------------------------------------------
 rlgym_mod = types.ModuleType("rlgym")
 rlgym_mod.make = lambda *args, **kwargs: None
-
 utils_mod = types.ModuleType("rlgym.utils")
 action_parsers_mod = types.ModuleType("rlgym.utils.action_parsers")
 
@@ -31,9 +36,17 @@ common_conditions = types.SimpleNamespace(
 )
 terminal_conditions_mod.common_conditions = common_conditions
 
-utils_mod.action_parsers = action_parsers_mod
-utils_mod.terminal_conditions = terminal_conditions_mod
-rlgym_mod.utils = utils_mod
+rlgym_utils.action_parsers = action_parsers_mod
+rlgym_utils.terminal_conditions = terminal_conditions_mod
+
+sys.modules.setdefault("rlgym.utils", rlgym_utils)
+sys.modules.setdefault("rlgym.utils.action_parsers", action_parsers_mod)
+sys.modules.setdefault("rlgym.utils.terminal_conditions", terminal_conditions_mod)
+
+import src.training.state_setters as state_setters_mod
+state_setters_mod.SSLStateSetter = object
+
+from src.training.env_factory import make_env
 
 api_cfg_mod = types.ModuleType("rlgym.api.config")
 class ObsBuilder: ...
@@ -255,6 +268,8 @@ def setup_trainer(monkeypatch, seed=0):
     monkeypatch.setattr(PPOTrainer, "_load_config", lambda self, path: minimal_config())
     monkeypatch.setattr(
         PPOTrainer,
+        '_create_environment',
+        lambda self: make_env(seed=self.seed)(),
         "_create_environment",
         lambda self: RL2v2Env(seed=self.seed),
     )

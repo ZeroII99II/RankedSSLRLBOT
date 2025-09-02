@@ -139,6 +139,15 @@ class GameStateWrapper:
 class RL2v2Env(gym.Env):
     """Small 2v2 Rocket League environment using project builders."""
 
+    # ``gym.Env`` expects ``metadata['render_modes']`` to advertise the
+    # available render modes.  We support a single RGB array mode which is
+    # used by the training script when ``--render`` is supplied.
+    metadata = {"render_modes": ["rgb_array"], "render_fps": 60}
+
+    metadata = {"render_modes": ["rgb_array", "human"]}
+
+    def __init__(self, seed: int = 42, render: bool = False, num_players_per_team: int = 2):
+
     metadata = {"render_modes": ["rgb_array", "human"], "render_fps": 60}
 
     def __init__(self, seed: int = 42, render: bool = False):
@@ -193,16 +202,56 @@ class RL2v2Env(gym.Env):
         return {str(k): float(v) for k, v in data.items() if k in self._scenario_funcs}
 
     def _random_state(self) -> GameState:
+        """Create a ``GameState`` from the configured scenarios.
+
+        The environment samples a scenario based on the configured weights. If
+        the selected scenario already returns a :class:`GameState` instance it is
+        used directly.  Otherwise a fallback random state is generated using the
+        internal RocketSim engine.
+        """
+
+        names = list(self._scenario_funcs.keys())
+        weights = np.array(
+            [self._scenario_weights.get(n, 1.0) for n in names], dtype=float
+        )
+        if weights.sum() <= 0:
+            weights = np.ones_like(weights)
+        weights = weights / weights.sum()
+
+        choice = self.np_random.choice(names, p=weights)
+        scenario_fn = self._scenario_funcs[choice]
+        state = scenario_fn(self.np_random)
+        if isinstance(state, GameState):
+            return state
+
         """Create a scenario-driven 2v2 game state."""
 
+        # Fallback: create a random state using the real engine
         gs = self._engine.create_base_state()
         gs.tick_count = 0
         gs.goal_scored = False
 
+        # Random ball
+        ball = PhysicsObject()
+        ball.position = self.np_random.uniform(-1000, 1000, size=3).astype(np.float32)
+        ball.linear_velocity = self.np_random.uniform(-500, 500, size=3).astype(
+            np.float32
+        )
+        ball.angular_velocity = self.np_random.uniform(-5, 5, size=3).astype(
+            np.float32
+        )
+        ball.euler_angles = self.np_random.uniform(-np.pi, np.pi, size=3).astype(
+            np.float32
+        )
+        gs.ball = ball
+
+        # Random cars
+
         # Initialise four cars (two per team) with default physics
         gs.cars = {}
-        for i in range(4):
-            team = 0 if i < 2 else 1
+        total_players = 2 * self._num_players_per_team
+        for i in range(total_players):
+            team = 0 if i < self._num_players_per_team else 1
             car = Car()
             car.team_num = team
             car.ball_touches = 0
@@ -210,12 +259,39 @@ class RL2v2Env(gym.Env):
             car.on_ground = True
             car.has_flip = True
             car.has_jumped = False
+            car.is_holding_jump = False
+            car.jump_time = 0.0
+            car.has_flipped = False
+            car.has_double_jumped = False
+            car.air_time_since_jump = 0.0
+            car.flip_time = 0.0
+            car.flip_torque = np.zeros(3, dtype=np.float32)
+            car.is_autoflipping = False
+            car.autoflip_timer = 0.0
+            car.autoflip_direction = 1.0
+            phys = PhysicsObject()
+            phys.position = self.np_random.uniform(-1000, 1000, size=3).astype(
+                np.float32
+            )
+            phys.linear_velocity = self.np_random.uniform(-500, 500, size=3).astype(
+                np.float32
+            )
+            phys.angular_velocity = self.np_random.uniform(-5, 5, size=3).astype(
+                np.float32
+            )
+            phys.euler_angles = self.np_random.uniform(-np.pi, np.pi, size=3).astype(
+                np.float32
+            )
+            car.physics = phys
+
             car.is_demoed = False
             car.physics = PhysicsObject()
             gs.cars[i] = car
 
         gs.boost_pad_timers = np.zeros(len(BOOST_LOCATIONS), dtype=np.float32)
         gs.config = GameConfig()
+
+        return gs
 
         names = list(self._scenario_funcs.keys())
         weights = np.array([self._scenario_weights.get(n, 1.0) for n in names], dtype=float)
@@ -323,6 +399,8 @@ class RL2v2Env(gym.Env):
             except Exception:
                 pass
         return frame
+
+
 
 def make_env(seed: int = 42, render: bool = False) -> Callable[[], RL2v2Env]:
     """Return a thunk that creates a seeded ``RL2v2Env`` instance."""
