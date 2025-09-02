@@ -498,6 +498,7 @@ class PPOTrainer:
                 # Update training steps
                 self.training_steps += self.config['ppo']['steps_per_update']
                 self.episode_count += len(rollouts['episode_rewards'])
+                self.curriculum.update_games(len(rollouts['episode_rewards']))
                 
                 # Log metrics
                 metrics = {
