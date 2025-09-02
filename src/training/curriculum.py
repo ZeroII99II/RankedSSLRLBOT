@@ -49,6 +49,7 @@ class CurriculumManager:
         self.current_phase: str = "bronze"
         self.phase_history: List[Tuple[str, int]] = []  # (phase, steps)
         self.training_steps: int = 0
+        self.games_played: int = 0
         
         self._load_curriculum_config()
     
@@ -435,7 +436,7 @@ class CurriculumManager:
 
         # Some gates apply to overall training statistics rather than evaluation metrics
         min_games = gates.get("min_games", 0)
-        if self.training_steps < min_games:
+        if self.games_played < min_games:
             return False
 
         # Remaining gates are treated as evaluation metric thresholds
@@ -498,6 +499,10 @@ class CurriculumManager:
     def update_training_steps(self, steps: int):
         """Update training step counter."""
         self.training_steps += steps
+
+    def update_games(self, games: int):
+        """Update games played counter."""
+        self.games_played += games
     
     def get_reward_weights(self) -> Dict[str, float]:
         """Get current phase reward weights."""
