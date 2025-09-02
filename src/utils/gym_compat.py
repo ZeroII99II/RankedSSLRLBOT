@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import numpy as np
+
 try:
     import gymnasium as gym
 except Exception:  # fallback if some dep still needs old gym
@@ -16,6 +18,8 @@ def reset_env(env, **kwargs):
     return obs, info
 
 def step_env(env, action):
+    if isinstance(action, np.ndarray) and action.ndim == 2 and action.shape[0] == 1:
+        action = action[0]
     out = env.step(action)
     # Gymnasium: (obs, reward, terminated, truncated, info)
     if isinstance(out, tuple) and len(out) == 5:
