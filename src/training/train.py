@@ -14,6 +14,7 @@ import time
 import random
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
+import random
 import yaml
 import numpy as np
 import torch
@@ -46,6 +47,9 @@ class PPOTrainer:
     def __init__(self, config_path: str, curriculum_path: str, seed: Optional[int] = None):
         self.console = Console()
         self.config = self._load_config(config_path)
+        self.seed = seed if seed is not None else self.config.get('training', {}).get('seed', 42)
+
+        # Seed all RNGs
         training_cfg = self.config.setdefault('training', {})
         if seed is not None:
             training_cfg['seed'] = seed
@@ -55,6 +59,7 @@ class PPOTrainer:
         torch.manual_seed(self.seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(self.seed)
+
         self.curriculum = CurriculumManager(curriculum_path)
 
         # Setup device
@@ -138,6 +143,7 @@ class PPOTrainer:
             team_size=self.config['env']['team_size'],
             tick_skip=self.config['env']['tick_skip'],
             spawn_opponents=self.config['env']['spawn_opponents'],
+            seed=self.seed,
             obs_builder=obs_builder,
             reward_fn=reward_fn,
             state_setter=state_setter,
@@ -569,6 +575,7 @@ def main():
     parser.add_argument('--dry_run', type=int, default=0,
                        help='If > 0, run this many env steps and exit')
     parser.add_argument('--seed', type=int, default=None,
+                       help='Random seed for reproducibility')
                         help='Random seed for reproducibility')
     
     args = parser.parse_args()
