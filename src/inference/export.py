@@ -35,6 +35,11 @@ def main() -> None:
     cont_dim = policy_cfg.get("continuous_actions", CONT_DIM)
     disc_dim = policy_cfg.get("discrete_actions", DISC_DIM)
 
+    # Ensure defaults are available when configuration lacks them
+    policy_cfg.setdefault("obs_dim", obs_dim)
+    policy_cfg.setdefault("continuous_actions", cont_dim)
+    policy_cfg.setdefault("discrete_actions", disc_dim)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if args.sb3:
