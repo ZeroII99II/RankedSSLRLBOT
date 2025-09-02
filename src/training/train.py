@@ -13,6 +13,7 @@ import os
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
+import random
 import yaml
 import numpy as np
 import torch
@@ -41,12 +42,21 @@ class PPOTrainer:
     """
     PPO trainer for SSL bot with curriculum learning and self-play.
     """
-    
-    def __init__(self, config_path: str, curriculum_path: str):
+
+    def __init__(self, config_path: str, curriculum_path: str, seed: Optional[int] = None):
         self.console = Console()
         self.config = self._load_config(config_path)
+        self.seed = seed if seed is not None else self.config.get('training', {}).get('seed', 42)
+
+        # Seed all RNGs
+        random.seed(self.seed)
+        np.random.seed(self.seed)
+        torch.manual_seed(self.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(self.seed)
+
         self.curriculum = CurriculumManager(curriculum_path)
-        
+
         # Setup device
         self.device = self._setup_device()
         
@@ -128,6 +138,7 @@ class PPOTrainer:
             team_size=self.config['env']['team_size'],
             tick_skip=self.config['env']['tick_skip'],
             spawn_opponents=self.config['env']['spawn_opponents'],
+            seed=self.seed,
             obs_builder=obs_builder,
             reward_fn=reward_fn,
             state_setter=state_setter,
@@ -527,6 +538,8 @@ def main():
                        help='Directory for saving checkpoints')
     parser.add_argument('--dry_run', type=int, default=0,
                        help='If > 0, run this many env steps and exit')
+    parser.add_argument('--seed', type=int, default=None,
+                       help='Random seed for reproducibility')
     
     args = parser.parse_args()
     
@@ -537,7 +550,7 @@ def main():
         raise FileNotFoundError(f"Curriculum file not found: {args.curr}")
     
     # Create trainer
-    trainer = PPOTrainer(args.cfg, args.curr)
+    trainer = PPOTrainer(args.cfg, args.curr, seed=args.seed)
     
     # Override device if specified
     if args.device != 'auto':
