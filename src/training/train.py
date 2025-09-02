@@ -235,7 +235,12 @@ class PPOTrainer:
                         obs, _info = reset_env(self.env)
 
                 progress.update(task, advance=1)
-        
+
+        # If rollout finished without episode termination, record the ongoing episode
+        if episode_len > 0:
+            episode_rewards.append(episode_reward)
+            episode_lengths.append(episode_len)
+
         # Convert buffers to tensors
         actions = {
             'continuous_actions': torch.cat(action_buffer['continuous_actions']),

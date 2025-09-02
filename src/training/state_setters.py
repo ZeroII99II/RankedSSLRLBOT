@@ -23,6 +23,7 @@ def rand_vec3(rng: np.random.Generator, max_magnitude: float = 1.0) -> np.ndarra
     """Generate a random 3D vector with components in [-max_magnitude, max_magnitude]."""
     return rng.uniform(-max_magnitude, max_magnitude, 3)
 
+=======
 
 class DefaultState:
     """Placeholder for compatibility during testing."""
@@ -66,6 +67,9 @@ class ModernStateSetter:
         self.curriculum_phase = curriculum_phase
         self.scenario_weights = scenario_weights or self._get_default_weights()
         self.rng = rng or np.random.default_rng()
+
+    def _rand_vec3(self, scale: float) -> np.ndarray:
+        return self.rng.uniform(-scale, scale, 3)
         
     def _get_default_weights(self) -> Dict[str, float]:
         """Get default scenario weights based on curriculum phase."""
@@ -167,6 +171,9 @@ class ModernStateSetter:
             weights = [1.0 / len(scenarios)] * len(scenarios)
         
         scenario = self.rng.choice(scenarios, p=weights)
+
+        scenario = self.rng.choice(scenarios, p=weights)
+        self._last_scenario = scenario
         
         # Execute selected scenario
         if scenario == 'kickoff':
@@ -209,6 +216,8 @@ class ModernStateSetter:
         # Ball velocity toward one of the goals
         goal_direction = 1 if self.rng.random() > 0.5 else -1
         ball_vel = rand_vec3(self.rng, self.rng.uniform(500, 1500))
+
+        ball_vel = self._rand_vec3(self.rng.uniform(500, 1500))
         ball_vel[1] = goal_direction * abs(ball_vel[1])
         state_wrapper.ball.set_lin_vel(*ball_vel)
         
@@ -225,6 +234,8 @@ class ModernStateSetter:
         
         # Ball moving horizontally
         ball_vel = rand_vec3(self.rng, self.rng.uniform(300, 1000))
+
+        ball_vel = self._rand_vec3(self.rng.uniform(300, 1000))
         ball_vel[2] = self.rng.uniform(-200, 200)  # Small vertical component
         state_wrapper.ball.set_lin_vel(*ball_vel)
         
@@ -240,16 +251,22 @@ class ModernStateSetter:
             ball_x = self.rng.uniform(3500, 4000)
             ball_y = self.rng.uniform(-4000, 4000)
             ball_vel = rand_vec3(self.rng, self.rng.uniform(800, 1500))
+
+            ball_vel = self._rand_vec3(self.rng.uniform(800, 1500))
             ball_vel[0] = -abs(ball_vel[0])  # Moving toward wall
         elif wall_side == 'right':
             ball_x = self.rng.uniform(-4000, -3500)
             ball_y = self.rng.uniform(-4000, 4000)
             ball_vel = rand_vec3(self.rng, self.rng.uniform(800, 1500))
+            ball_vel = self._rand_vec3(self.rng.uniform(800, 1500))
+ 
             ball_vel[0] = abs(ball_vel[0])  # Moving toward wall
         else:  # back
             ball_x = self.rng.uniform(-3000, 3000)
             ball_y = self.rng.uniform(4500, 5000) if self.rng.random() > 0.5 else self.rng.uniform(-5000, -4500)
             ball_vel = rand_vec3(self.rng, self.rng.uniform(800, 1500))
+
+            ball_vel = self._rand_vec3(self.rng.uniform(800, 1500))
             ball_vel[1] = -abs(ball_vel[1]) if ball_y > 0 else abs(ball_vel[1])
         
         ball_z = self.rng.uniform(100, 600)
@@ -269,6 +286,8 @@ class ModernStateSetter:
         
         # Ball moving toward backboard
         ball_vel = rand_vec3(self.rng, self.rng.uniform(600, 1200))
+
+        ball_vel = self._rand_vec3(self.rng.uniform(600, 1200))
         ball_vel[1] = -abs(ball_vel[1]) if ball_y > 0 else abs(ball_vel[1])
         state_wrapper.ball.set_lin_vel(*ball_vel)
         
@@ -285,6 +304,8 @@ class ModernStateSetter:
         
         # Ball moving with significant horizontal velocity
         ball_vel = rand_vec3(self.rng, self.rng.uniform(800, 1500))
+
+        ball_vel = self._rand_vec3(self.rng.uniform(800, 1500))
         ball_vel[2] = self.rng.uniform(-300, 100)  # Falling
         state_wrapper.ball.set_lin_vel(*ball_vel)
         
@@ -302,6 +323,7 @@ class ModernStateSetter:
         
         # Ball moving toward backboard with good speed
         ball_vel = rand_vec3(self.rng, self.rng.uniform(1000, 1800))
+        ball_vel = self._rand_vec3(self.rng.uniform(1000, 1800))
         ball_vel[1] = -abs(ball_vel[1]) if ball_y > 0 else abs(ball_vel[1])
         ball_vel[2] = self.rng.uniform(-200, 200)
         state_wrapper.ball.set_lin_vel(*ball_vel)
@@ -319,6 +341,8 @@ class ModernStateSetter:
         
         # Ball moving upward
         ball_vel = rand_vec3(self.rng, self.rng.uniform(400, 800))
+
+        ball_vel = self._rand_vec3(self.rng.uniform(400, 800))
         ball_vel[2] = self.rng.uniform(200, 600)  # Upward
         state_wrapper.ball.set_lin_vel(*ball_vel)
         
@@ -336,6 +360,8 @@ class ModernStateSetter:
         
         # Ball moving along ceiling
         ball_vel = rand_vec3(self.rng, self.rng.uniform(600, 1200))
+
+        ball_vel = self._rand_vec3(self.rng.uniform(600, 1200))
         ball_vel[2] = self.rng.uniform(-100, 100)  # Small vertical component
         state_wrapper.ball.set_lin_vel(*ball_vel)
         
@@ -353,6 +379,7 @@ class ModernStateSetter:
         # Ball moving toward goal
         goal_direction = 1 if ball_y < 0 else -1
         ball_vel = rand_vec3(self.rng, self.rng.uniform(800, 1500))
+        ball_vel = self._rand_vec3(self.rng.uniform(800, 1500))
         ball_vel[1] = goal_direction * abs(ball_vel[1])
         state_wrapper.ball.set_lin_vel(*ball_vel)
         
