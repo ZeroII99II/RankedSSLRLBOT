@@ -148,10 +148,12 @@ class PPOTrainer:
         value_buffer = []
         log_prob_buffer = []
         done_buffer = []
-        
+
         obs, _info = reset_env(self.env)
         episode_rewards = []
         episode_lengths = []
+        episode_reward = 0.0
+        episode_len = 0
         
         with Progress(
             SpinnerColumn(),
@@ -181,8 +183,12 @@ class PPOTrainer:
 
                 # Store experience
                 obs_buffer.append(obs_tensor.cpu())
-                action_buffer.append(action_outputs)
-                reward_buffer.append(torch.tensor([reward], dtype=torch.float32).to(self.device))
+                action_buffer.append({
+                    'continuous_actions': action_outputs['continuous_actions'].cpu(),
+                    'discrete_actions': action_outputs['discrete_actions'].cpu(),
+                })
+                reward_tensor = torch.tensor([reward], dtype=torch.float32).to(self.device)
+                reward_buffer.append(reward_tensor)
                 value_buffer.append(value.cpu())
                 log_prob_buffer.append(log_prob.cpu())
                 done_buffer.append(torch.tensor([done], dtype=torch.bool).to(self.device))
@@ -190,23 +196,32 @@ class PPOTrainer:
                 obs = next_obs
 
                 # Track episode statistics
+                episode_reward += reward
+                episode_len += 1
                 if done:
-                    episode_rewards.append(reward)
-                    episode_lengths.append(step + 1)
+                    episode_rewards.append(episode_reward)
+                    episode_lengths.append(episode_len)
+                    episode_reward = 0.0
+                    episode_len = 0
                     obs, _info = reset_env(self.env)
-                
+
                 progress.update(task, advance=1)
         
         # Convert buffers to tensors
+        actions = {
+            'continuous_actions': torch.cat([a['continuous_actions'] for a in action_buffer]),
+            'discrete_actions': torch.cat([a['discrete_actions'] for a in action_buffer]),
+        }
+
         rollouts = {
             'observations': torch.cat(obs_buffer),
-            'actions': action_buffer,
+            'actions': actions,
             'rewards': torch.cat(reward_buffer),
             'values': torch.cat(value_buffer),
             'log_probs': torch.cat(log_prob_buffer),
             'dones': torch.cat(done_buffer),
             'episode_rewards': episode_rewards,
-            'episode_lengths': episode_lengths
+            'episode_lengths': episode_lengths,
         }
         
         return rollouts
@@ -262,7 +277,7 @@ class PPOTrainer:
         
         # Prepare data
         obs = rollouts['observations'].to(self.device)
-        actions = rollouts['actions']
+        actions = {k: v.to(self.device) for k, v in rollouts['actions'].items()}
         old_log_probs = rollouts['log_probs'].to(self.device)
         advantages = advantages.to(self.device)
         returns = returns.to(self.device)
