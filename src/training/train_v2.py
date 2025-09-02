@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse, os
+import argparse, os, threading
 import torch
 from stable_baselines3 import PPO
 from src.training.env_factory import make_env
@@ -14,6 +14,11 @@ def main():
     ap.add_argument("--tensorboard", type=str, default="runs/ssl_v2")
     ap.add_argument("--switch_every", type=int, default=100_000,
                     help="Timesteps between team size switches")
+
+    ap.add_argument("--render", action="store_true", help="Render a single env in a viewer thread")
+
+    ap.add_argument("--render", action="store_true", help="Enable environment rendering")
+ 
     args = ap.parse_args()
 
     os.makedirs(args.ckpt_dir, exist_ok=True)
@@ -21,6 +26,10 @@ def main():
     team_sizes = [1, 2]
     team_idx = 0
     env_fns = [make_env(seed=args.seed + i, team_size=team_sizes[team_idx]) for i in range(args.envs)]
+    env_fns = [
+        make_env(seed=args.seed + i, render=args.render and i == 0)
+        for i in range(args.envs)
+    ]
     vec = make_vec(env_fns)
     policy_kwargs = make_policy_kwargs()
 
@@ -57,6 +66,40 @@ def main():
             vec = make_vec(env_fns)
             model.set_env(vec)
 
+
+    if args.render:
+        def _viewer():
+            env = make_env(seed=args.seed)()
+            obs, _ = env.reset()
+            import matplotlib.pyplot as plt
+
+            plt.ion()
+            fig, ax = plt.subplots()
+            img = ax.imshow(env.render())
+            ax.axis("off")
+
+            while True:
+                action, _ = model.predict(obs, deterministic=True)
+                obs, _, terminated, truncated, _ = env.step(action)
+                frame = env.render()
+                img.set_data(frame)
+                plt.pause(0.01)
+                if terminated or truncated:
+                    obs, _ = env.reset()
+    if args.render:
+        import threading, time
+
+        def _viewer():
+            while True:
+                try:
+                    vec.envs[0].render("human")
+                    time.sleep(1 / 60)
+                except Exception:
+                    break
+
+        threading.Thread(target=_viewer, daemon=True).start()
+
+    model.learn(total_timesteps=args.steps)
     model.save(os.path.join(args.ckpt_dir, "best_sb3.zip"))
 
 if __name__ == "__main__":

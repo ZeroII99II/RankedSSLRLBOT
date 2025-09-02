@@ -2,6 +2,7 @@ import sys, types
 from pathlib import Path
 
 import pytest
+import numpy as np
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
@@ -31,6 +32,63 @@ def test_create_environment(monkeypatch):
     sys.modules["rlgym.utils"] = utils_mod
     sys.modules["rlgym.utils.terminal_conditions"] = tc_mod
     sys.modules["rlgym.utils.action_parsers"] = ap_mod
+
+    rocket_mod = types.ModuleType("rlgym.rocket_league")
+    common_values_mod = types.ModuleType("rlgym.rocket_league.common_values")
+    common_values_mod.CAR_MAX_SPEED = 0
+    common_values_mod.BALL_MAX_SPEED = 0
+    common_values_mod.CEILING_Z = 0
+    common_values_mod.BALL_RADIUS = 0
+    common_values_mod.SIDE_WALL_X = 0
+    common_values_mod.BACK_WALL_Y = 0
+    common_values_mod.CAR_MAX_ANG_VEL = 0
+    rocket_mod.common_values = common_values_mod
+    sys.modules["rlgym.rocket_league"] = rocket_mod
+    sys.modules["rlgym.rocket_league.common_values"] = common_values_mod
+
+    # Stub torch modules
+    torch_mod = types.ModuleType("torch")
+    torch_mod.cuda = types.SimpleNamespace(is_available=lambda: False, get_device_name=lambda *args: "cpu")
+    torch_mod.device = object
+    torch_mod.Tensor = object
+    nn_mod = types.ModuleType("torch.nn")
+    class Module:
+        pass
+    nn_mod.Module = Module
+    optim_mod = types.ModuleType("torch.optim")
+    optim_mod.Adam = object
+    tb_mod = types.ModuleType("torch.utils.tensorboard")
+    class SummaryWriter:
+        def __init__(self, *args, **kwargs):
+            pass
+    tb_mod.SummaryWriter = SummaryWriter
+    torch_mod.nn = nn_mod
+    torch_mod.optim = optim_mod
+    torch_utils = types.ModuleType("torch.utils")
+    torch_utils.tensorboard = tb_mod
+    sys.modules.update({
+        "torch": torch_mod,
+        "torch.nn": nn_mod,
+        "torch.optim": optim_mod,
+        "torch.utils": torch_utils,
+        "torch.utils.tensorboard": tb_mod,
+    })
+
+    # Stub policy module
+    policy_mod = types.ModuleType("src.training.policy")
+    class SSLPolicy:
+        pass
+    class SSLCritic:
+        pass
+    def create_ssl_policy(cfg):
+        return SSLPolicy()
+    def create_ssl_critic(cfg):
+        return SSLCritic()
+    policy_mod.SSLPolicy = SSLPolicy
+    policy_mod.SSLCritic = SSLCritic
+    policy_mod.create_ssl_policy = create_ssl_policy
+    policy_mod.create_ssl_critic = create_ssl_critic
+    sys.modules["src.training.policy"] = policy_mod
 
     # Stub rich library modules
     rich_mod = types.ModuleType("rich")
@@ -77,6 +135,7 @@ def test_create_environment(monkeypatch):
         get_current_phase=lambda: types.SimpleNamespace(name="test")
     )
     trainer.action_parser = object()
+    trainer.np_rng = np.random.default_rng(0)
 
     env = trainer._create_environment()
     assert env is dummy_env

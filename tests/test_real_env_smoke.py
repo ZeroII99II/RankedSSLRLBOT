@@ -38,6 +38,18 @@ sys.modules.setdefault("rlgym.utils", utils_mod)
 sys.modules.setdefault("rlgym.utils.action_parsers", action_parsers_mod)
 sys.modules.setdefault("rlgym.utils.terminal_conditions", terminal_conditions_mod)
 
+api_mod = types.ModuleType("rlgym.api")
+config_mod = types.ModuleType("rlgym.api.config")
+class ObsBuilder:
+    pass
+config_mod.ObsBuilder = ObsBuilder
+class RewardFunction:
+    pass
+config_mod.RewardFunction = RewardFunction
+api_mod.config = config_mod
+sys.modules.setdefault("rlgym.api", api_mod)
+sys.modules.setdefault("rlgym.api.config", config_mod)
+
 
 rocket_mod = types.ModuleType("rlgym.rocket_league")
 common_values_mod = types.ModuleType("rlgym.rocket_league.common_values")
@@ -48,9 +60,21 @@ common_values_mod.BALL_RADIUS = 92.75
 common_values_mod.SIDE_WALL_X = 4096
 common_values_mod.BACK_WALL_Y = 5120
 common_values_mod.CAR_MAX_ANG_VEL = 5.5
+common_values_mod.BOOST_LOCATIONS = np.zeros((1, 3))
+common_values_mod.BLUE_GOAL_BACK = np.zeros(3)
+common_values_mod.BLUE_GOAL_CENTER = np.zeros(3)
+common_values_mod.ORANGE_GOAL_BACK = np.zeros(3)
+common_values_mod.ORANGE_GOAL_CENTER = np.zeros(3)
+common_values_mod.GOAL_HEIGHT = 0
+common_values_mod.ORANGE_TEAM = 1
 rocket_mod.common_values = common_values_mod
 sys.modules.setdefault("rlgym.rocket_league", rocket_mod)
 sys.modules.setdefault("rlgym.rocket_league.common_values", common_values_mod)
+api_rl_mod = types.ModuleType("rlgym.rocket_league.api")
+class GameState:
+    pass
+api_rl_mod.GameState = GameState
+sys.modules.setdefault("rlgym.rocket_league.api", api_rl_mod)
 # ---------------------------------------------------------------------------
 from src.training.env_factory import RLMatchEnv
 from src.training.train import PPOTrainer
@@ -163,3 +187,8 @@ def test_private_rng_determinism(monkeypatch):
     actions2 = trainer2._collect_rollouts(4)['actions']
     assert torch.equal(actions1['continuous_actions'], actions2['continuous_actions'])
     assert torch.equal(actions1['discrete_actions'], actions2['discrete_actions'])
+
+    sample1 = trainer1.env.action_space.sample()
+    sample2 = trainer2.env.action_space.sample()
+    assert np.allclose(sample1['cont'], sample2['cont'])
+    assert np.array_equal(sample1['disc'], sample2['disc'])
