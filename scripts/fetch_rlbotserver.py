@@ -17,17 +17,17 @@ import sys
 import urllib.request
 
 API_URL = "https://api.github.com/repos/RLBot/core/releases/latest"
+ASSET_NAME = "RLBotServer.exe" if os.name == "nt" else "RLBotServer"
 
 
 def _get_asset_url() -> str:
     """Return the download URL for the RLBotServer asset."""
     with urllib.request.urlopen(API_URL) as resp:  # nosec B310 - trusted host
         data = json.load(resp)
-    asset_name = "RLBotServer.exe" if os.name == "nt" else "RLBotServer"
     for asset in data.get("assets", []):
-        if asset.get("name") == asset_name:
+        if asset.get("name") == ASSET_NAME:
             return asset.get("browser_download_url", "")
-    raise RuntimeError(f"Asset {asset_name} not found in latest release")
+    raise RuntimeError(f"Asset {ASSET_NAME} not found in latest release")
 
 
 def _download(url: str, dest: Path) -> None:
@@ -49,8 +49,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Destination directory for the binary (default: repo root)",
     )
     args = parser.parse_args(argv)
-    filename = "RLBotServer.exe" if os.name == "nt" else "RLBotServer"
-    dest_path = args.dest / filename
+    dest_path = args.dest / ASSET_NAME
 
     try:
         url = _get_asset_url()
