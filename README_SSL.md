@@ -11,9 +11,10 @@ powershell -ExecutionPolicy Bypass -File .\env\setup.ps1
 
 ### 2) Train
 
-```bash
-python src/training/train.py --cfg configs/ppo_ssl.yaml --curr configs/curriculum.yaml
-```
+
+Use `--seed` to make training runs deterministic.
+
+> Use `--seed` to make runs deterministic. If omitted, the value from `training.seed` in the config is used.
 
 ### 3) Export TorchScript
 
@@ -620,6 +621,7 @@ Enable debug mode for detailed logging:
 ```yaml
 # In configs/ppo_ssl.yaml
 training:
+  seed: 0  # Random seed for reproducibility
   log_frequency: 10  # More frequent logging
   tensorboard: true
   wandb: true  # Enable Weights & Biases

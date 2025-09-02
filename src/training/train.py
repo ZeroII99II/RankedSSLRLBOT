@@ -11,8 +11,10 @@ if str(ROOT) not in sys.path:
 import argparse
 import os
 import time
+import random
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
+import random
 import yaml
 import numpy as np
 import torch
@@ -39,12 +41,25 @@ class PPOTrainer:
     """
     PPO trainer for SSL bot with curriculum learning and self-play.
     """
-    
-    def __init__(self, config_path: str, curriculum_path: str):
+
+    def __init__(self, config_path: str, curriculum_path: str, seed: Optional[int] = None):
         self.console = Console()
         self.config = self._load_config(config_path)
+        self.seed = seed if seed is not None else self.config.get('training', {}).get('seed', 42)
+
+        # Seed all RNGs
+        training_cfg = self.config.setdefault('training', {})
+        if seed is not None:
+            training_cfg['seed'] = seed
+        self.seed = training_cfg.get('seed', 0)
+        random.seed(self.seed)
+        np.random.seed(self.seed)
+        torch.manual_seed(self.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(self.seed)
+
         self.curriculum = CurriculumManager(curriculum_path)
-        
+
         # Setup device
         self.device = self._setup_device()
         
@@ -129,6 +144,7 @@ class PPOTrainer:
             team_size=self.config['env']['team_size'],
             tick_skip=self.config['env']['tick_skip'],
             spawn_opponents=self.config['env']['spawn_opponents'],
+            seed=self.seed,
             obs_builder=obs_builder,
             reward_fn=reward_fn,
             state_setter=state_setter,
@@ -136,7 +152,8 @@ class PPOTrainer:
                 common_conditions.TimeoutCondition(300),  # 5 minutes
                 common_conditions.GoalScoredCondition()
             ],
-            action_parser=self.action_parser
+            action_parser=self.action_parser,
+            seed=self.seed
         )
         
         return env
@@ -152,10 +169,12 @@ class PPOTrainer:
         value_buffer = []
         log_prob_buffer = []
         done_buffer = []
-        
+
         obs, _info = reset_env(self.env)
         episode_rewards = []
         episode_lengths = []
+        episode_reward = 0.0
+        episode_len = 0
         
         with Progress(
             SpinnerColumn(),
@@ -183,6 +202,9 @@ class PPOTrainer:
                 # Step environment
                 next_obs, reward, done, info = step_env(self.env, actions)
 
+                episode_reward += reward
+                episode_len += 1
+
                 # Store experience
                 obs_buffer.append(obs_tensor.cpu())
                 action_buffer['continuous_actions'].append(
@@ -191,7 +213,20 @@ class PPOTrainer:
                 action_buffer['discrete_actions'].append(
                     action_outputs['discrete_actions']
                 )
+
+                action_buffer.append({
+
+                    "continuous_actions": action_outputs["continuous_actions"].cpu(),
+                    "discrete_actions": action_outputs["discrete_actions"].cpu(),
+                })
                 reward_buffer.append(torch.tensor([reward], dtype=torch.float32).to(self.device))
+
+                    'continuous_actions': action_outputs['continuous_actions'].cpu(),
+                    'discrete_actions': action_outputs['discrete_actions'].cpu(),
+                })
+                reward_tensor = torch.tensor([reward], dtype=torch.float32).to(self.device)
+                reward_buffer.append(reward_tensor)
+
                 value_buffer.append(value.cpu())
                 log_prob_buffer.append(log_prob.cpu())
                 done_buffer.append(torch.tensor([done], dtype=torch.bool).to(self.device))
@@ -199,17 +234,30 @@ class PPOTrainer:
                 obs = next_obs
 
                 # Track episode statistics
+                episode_reward += reward
+                episode_len += 1
                 if done:
-                    episode_rewards.append(reward)
-                    episode_lengths.append(step + 1)
+                    episode_rewards.append(episode_reward)
+                    episode_lengths.append(episode_len)
+                    episode_reward = 0.0
+                    episode_len = 0
                     obs, _info = reset_env(self.env)
-                
+
                 progress.update(task, advance=1)
         
         # Convert buffers to tensors
         actions = {
             'continuous_actions': torch.cat(action_buffer['continuous_actions']),
             'discrete_actions': torch.cat(action_buffer['discrete_actions'])
+
+
+            "continuous_actions": torch.cat([a["continuous_actions"] for a in action_buffer]),
+            "discrete_actions": torch.cat([a["discrete_actions"] for a in action_buffer]),
+
+            'continuous_actions': torch.cat([a['continuous_actions'] for a in action_buffer]),
+            'discrete_actions': torch.cat([a['discrete_actions'] for a in action_buffer]),
+
+
         }
 
         rollouts = {
@@ -220,7 +268,7 @@ class PPOTrainer:
             'log_probs': torch.cat(log_prob_buffer),
             'dones': torch.cat(done_buffer),
             'episode_rewards': episode_rewards,
-            'episode_lengths': episode_lengths
+            'episode_lengths': episode_lengths,
         }
         
         return rollouts
@@ -276,7 +324,7 @@ class PPOTrainer:
         
         # Prepare data
         obs = rollouts['observations'].to(self.device)
-        actions = rollouts['actions']
+        actions = {k: v.to(self.device) for k, v in rollouts['actions'].items()}
         old_log_probs = rollouts['log_probs'].to(self.device)
         advantages = advantages.to(self.device)
         returns = returns.to(self.device)
@@ -541,6 +589,9 @@ def main():
                        help='Directory for saving checkpoints')
     parser.add_argument('--dry_run', type=int, default=0,
                        help='If > 0, run this many env steps and exit')
+    parser.add_argument('--seed', type=int, default=None,
+                       help='Random seed for reproducibility')
+                        help='Random seed for reproducibility')
     
     args = parser.parse_args()
     
@@ -551,7 +602,7 @@ def main():
         raise FileNotFoundError(f"Curriculum file not found: {args.curr}")
     
     # Create trainer
-    trainer = PPOTrainer(args.cfg, args.curr)
+    trainer = PPOTrainer(args.cfg, args.curr, seed=args.seed)
     
     # Override device if specified
     if args.device != 'auto':

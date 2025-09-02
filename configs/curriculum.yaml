@@ -16,9 +16,8 @@ phases:
       scripted: 0.3
     progression_gates:
       min_games: 200
-      kpis:
-        on_target_pct: 0.30
-        recoveries_per_min: 15
+      on_target_pct: 0.30
+      recoveries_per_min: 15
     min_training_steps: 10000
     max_training_steps: 20000
     eval_metrics:
@@ -42,9 +41,8 @@ phases:
       scripted: 0.4
     progression_gates:
       min_games: 300
-      kpis:
-        on_target_pct: 0.45
-        save_rate: 0.15
+      on_target_pct: 0.45
+      save_rate: 0.15
     min_training_steps: 20000
     max_training_steps: 40000
     eval_metrics:
