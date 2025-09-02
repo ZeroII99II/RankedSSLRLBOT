@@ -21,6 +21,7 @@ Use `--seed` to make training runs deterministic.
 ```bash
 python -m src.inference.export --ckpt models/checkpoints/best.pt --out models/exported/ssl_policy.ts
 ```
+The exporter reads `configs/ppo_ssl.yaml` to rebuild the model. Use `--cfg` to supply a different training configuration.
 
 ### 4) Watch in Rocket League (RLBot)
 
@@ -44,7 +45,7 @@ pytest
 
 ```bash
 python src/training/train_v2.py --envs 8 --steps 1000000
-python src/inference/export.py --sb3 --ckpt models/checkpoints/best_sb3.zip --out models/exported/ssl_policy.ts --obs_dim 107
+python src/inference/export.py --sb3 --ckpt models/checkpoints/best_sb3.zip --out models/exported/ssl_policy.ts --cfg configs/ppo_ssl.yaml
 ```
 
 ## 📋 Table of Contents
@@ -308,6 +309,8 @@ python -m src.inference.export --ckpt models/checkpoints/checkpoint_1000000.pt -
 python -m src.inference.export --ckpt models/checkpoints/best.pt --out models/exported/ssl_policy.ts --test
 ```
 
+The script reads `configs/ppo_ssl.yaml` by default to match the training setup. Use `--cfg` to specify a different config file.
+
 ### Export Options
 
 ```bash
@@ -315,7 +318,7 @@ python -m src.inference.export --ckpt models/checkpoints/best.pt --out models/ex
 python -m src.inference.export --ckpt models/checkpoints/best.pt --out models/exported/ssl_policy.ts --use-script
 
 # Load custom configuration
-python -m src.inference.export --ckpt models/checkpoints/best.pt --out models/exported/ssl_policy.ts --config configs/ppo_ssl.yaml
+python -m src.inference.export --ckpt models/checkpoints/best.pt --out models/exported/ssl_policy.ts --cfg configs/ppo_ssl.yaml
 
 # Load observation statistics
 python -m src.inference.export --ckpt models/checkpoints/best.pt --out models/exported/ssl_policy.ts --obs-stats obs_stats.npy
