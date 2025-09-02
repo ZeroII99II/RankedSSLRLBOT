@@ -582,8 +582,9 @@ def main():
                        help='If > 0, run this many env steps and exit')
     parser.add_argument('--seed', type=int, default=None,
                        help='Random seed for reproducibility')
-    
-    args = parser.parse_args()
+
+
+      args = parser.parse_args()
     
     # Validate config files exist
     if not os.path.exists(args.cfg):
