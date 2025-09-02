@@ -192,14 +192,24 @@ class PPOTrainer:
                 # Step environment
                 next_obs, reward, done, info = step_env(self.env, actions)
 
+                episode_reward += reward
+                episode_len += 1
+
                 # Store experience
                 obs_buffer.append(obs_tensor.cpu())
                 action_buffer.append({
+
+                    "continuous_actions": action_outputs["continuous_actions"].cpu(),
+                    "discrete_actions": action_outputs["discrete_actions"].cpu(),
+                })
+                reward_buffer.append(torch.tensor([reward], dtype=torch.float32).to(self.device))
+
                     'continuous_actions': action_outputs['continuous_actions'].cpu(),
                     'discrete_actions': action_outputs['discrete_actions'].cpu(),
                 })
                 reward_tensor = torch.tensor([reward], dtype=torch.float32).to(self.device)
                 reward_buffer.append(reward_tensor)
+
                 value_buffer.append(value.cpu())
                 log_prob_buffer.append(log_prob.cpu())
                 done_buffer.append(torch.tensor([done], dtype=torch.bool).to(self.device))
@@ -220,8 +230,13 @@ class PPOTrainer:
         
         # Convert buffers to tensors
         actions = {
+
+            "continuous_actions": torch.cat([a["continuous_actions"] for a in action_buffer]),
+            "discrete_actions": torch.cat([a["discrete_actions"] for a in action_buffer]),
+
             'continuous_actions': torch.cat([a['continuous_actions'] for a in action_buffer]),
             'discrete_actions': torch.cat([a['discrete_actions'] for a in action_buffer]),
+
         }
 
         rollouts = {
