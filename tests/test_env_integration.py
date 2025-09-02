@@ -32,6 +32,29 @@ rlgym_mod.api = api_mod
 sys.modules["rlgym.api"] = api_mod
 sys.modules["rlgym.api.config"] = config_mod
 
+gym_mod = types.ModuleType("gymnasium")
+
+class Space:
+    pass
+
+class Box(Space):
+    def __init__(self, *args, shape=None, **kwargs):
+        self.shape = shape
+
+class MultiBinary(Space):
+    def __init__(self, n, **kwargs):
+        self.n = n
+
+class Dict(dict):
+    def __init__(self, spaces):
+        super().__init__(spaces)
+
+gym_mod.Env = object
+gym_mod.Space = Space
+gym_mod.spaces = types.SimpleNamespace(Box=Box, Dict=Dict, MultiBinary=MultiBinary)
+gym_mod.utils = types.SimpleNamespace(seeding=types.SimpleNamespace(np_random=lambda seed: (np.random.default_rng(seed), seed)))
+sys.modules["gymnasium"] = gym_mod
+
 common_values_mod = types.ModuleType("rlgym.rocket_league.common_values")
 common_values_mod.BOOST_LOCATIONS = np.zeros((1, 3), dtype=np.float32)
 common_values_mod.TICKS_PER_SECOND = 60
@@ -171,26 +194,12 @@ timeout_mod.TimeoutCondition = TimeoutCondition
 sys.modules["rlgym.rocket_league.done_conditions.timeout_condition"] = timeout_mod
 
 
-# ---------------------------------------------------------------------------
-# Import environment factory with stubs in place
-# ---------------------------------------------------------------------------
-from src.rlbot_integration.observation_adapter import OBS_SIZE
-from rlgym.api.config import ObsBuilder, RewardFunction
-
-env_factory_mod = types.ModuleType("src.training.env_factory")
-CONT_DIM = 5
-DISC_DIM = 3
-
-
-class RL2v2Env:
-    def __init__(self):
-        self._obs_builder = ObsBuilder()
-        self._reward_fn = RewardFunction()
-        self.observation_space = types.SimpleNamespace(shape=(OBS_SIZE,))
+class Match:
+    def __init__(self, *_, **__):
+        pass
 
     def reset(self):
-        obs = np.zeros(OBS_SIZE, dtype=np.float32)
-        return obs, {}
+        return np.zeros(OBS_SIZE, dtype=np.float32)
 
     def step(self, action):
         obs = np.zeros(OBS_SIZE, dtype=np.float32)
@@ -199,28 +208,37 @@ class RL2v2Env:
         truncated = False
         return obs, reward, terminated, truncated, {}
 
-
-env_factory_mod.RL2v2Env = RL2v2Env
-env_factory_mod.CONT_DIM = CONT_DIM
-env_factory_mod.DISC_DIM = DISC_DIM
-sys.modules.setdefault("src.training.env_factory", env_factory_mod)
+match_mod = types.ModuleType("rlgym.rocket_league.match")
+match_mod.Match = Match
+sys.modules["rlgym.rocket_league.match"] = match_mod
 
 
-@pytest.fixture
-def env():
-    return RL2v2Env()
+# ---------------------------------------------------------------------------
+# Import environment factory with stubs in place
+# ---------------------------------------------------------------------------
+import importlib
+import src.training.observers as observers_mod
+import src.training.rewards as rewards_mod
+importlib.reload(observers_mod)
+importlib.reload(rewards_mod)
+env_factory = importlib.reload(importlib.import_module("src.training.env_factory"))
+make_env = env_factory.make_env
+CONT_DIM = env_factory.CONT_DIM
+DISC_DIM = env_factory.DISC_DIM
+from src.rlbot_integration.observation_adapter import OBS_SIZE
+from rlgym.api.config import ObsBuilder, RewardFunction  # noqa: F401
 
 
-def test_reset_returns_obs_vec(env):
+def test_reset_returns_obs_vec():
+    env = make_env()()
     obs, info = env.reset()
     assert isinstance(obs, np.ndarray)
     assert obs.shape == (OBS_SIZE,)
     assert issubclass(obs.dtype.type, np.floating)
-    assert isinstance(env._obs_builder, ObsBuilder)
-    assert isinstance(env._reward_fn, RewardFunction)
 
 
-def test_step_produces_float_reward(env):
+def test_step_produces_float_reward():
+    env = make_env()()
     env.reset()
     action = {
         "cont": np.zeros(CONT_DIM, dtype=np.float32),
