@@ -10,11 +10,9 @@ if str(ROOT) not in sys.path:
 
 import argparse
 import os
-import time
 import random
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
-import random
+from typing import Dict, Optional, Tuple, Any
 import yaml
 import numpy as np
 import torch
@@ -23,7 +21,6 @@ from torch.utils.tensorboard import SummaryWriter
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
 from rich.table import Table
-from rich.panel import Panel
 
 # RLGym imports
 from rlgym.utils.action_parsers import DefaultAction
@@ -152,8 +149,7 @@ class PPOTrainer:
                 common_conditions.TimeoutCondition(300),  # 5 minutes
                 common_conditions.GoalScoredCondition()
             ],
-            action_parser=self.action_parser,
-            seed=self.seed
+            action_parser=self.action_parser
         )
         
         return env
