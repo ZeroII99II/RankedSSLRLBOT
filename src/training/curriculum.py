@@ -11,6 +11,8 @@ from pathlib import Path
 import numpy as np
 import logging
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class CurriculumPhase:
@@ -434,25 +436,25 @@ class CurriculumManager:
 
         gates = current_phase.progression_gates
 
-        # Some gates apply to overall training statistics rather than evaluation metrics
-        min_games = gates.get("min_games", 0)
-        if self.games_played < min_games:
-            return False
-
-        # Remaining gates are treated as evaluation metric thresholds
+        # Check evaluation metrics first to ensure missing metrics are logged
         missing_metrics = []
         for metric, threshold in gates.items():
             if metric == "min_games":
                 continue
             value = eval_metrics.get(metric)
             if value is None:
-                logging.warning("Missing evaluation metric: %s", metric)
+                logger.warning("Missing evaluation metric: %s", metric)
                 missing_metrics.append(metric)
                 continue
             if value < threshold:
                 return False
 
         if missing_metrics:
+            return False
+
+        # Finally check overall training statistics like games played
+        min_games = gates.get("min_games", 0)
+        if self.games_played < min_games:
             return False
 
         return True
