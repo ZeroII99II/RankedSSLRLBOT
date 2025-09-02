@@ -46,7 +46,6 @@ class PPOTrainer:
         training_cfg = self.config.setdefault('training', {})
         if seed is not None:
             training_cfg['seed'] = seed
-        self.seed = training_cfg.get('seed', 0)
         self.seed = training_cfg.get('seed', 42)
 
         self.curriculum = CurriculumManager(curriculum_path)
@@ -58,8 +57,6 @@ class PPOTrainer:
         self.py_rng = random.Random(self.seed)
         self.np_rng = np.random.default_rng(self.seed)
         self.torch_rng = torch.Generator(device=self.device).manual_seed(self.seed)
-
-        self.curriculum = CurriculumManager(curriculum_path)
         
         # Initialize models
         self.policy = create_ssl_policy(self.config['policy']).to(self.device)
@@ -142,7 +139,7 @@ class PPOTrainer:
             team_size=self.config['env']['team_size'],
             tick_skip=self.config['env']['tick_skip'],
             spawn_opponents=self.config['env']['spawn_opponents'],
-            seed=self.seed,
+            seed=getattr(self, 'seed', None),
             obs_builder=obs_builder,
             reward_fn=reward_fn,
             state_setter=state_setter,
@@ -167,9 +164,12 @@ class PPOTrainer:
         log_prob_buffer = []
         done_buffer = []
 
-        obs, _info = reset_env(
-            self.env, seed=int(self.np_rng.integers(0, 2**32))
-        )
+        try:
+            obs, _info = reset_env(
+                self.env, seed=int(self.np_rng.integers(0, 2**32))
+            )
+        except TypeError:
+            obs, _info = reset_env(self.env)
         episode_rewards = []
         episode_lengths = []
         episode_reward = 0.0
@@ -226,9 +226,12 @@ class PPOTrainer:
                     episode_lengths.append(episode_len)
                     episode_reward = 0.0
                     episode_len = 0
-                    obs, _info = reset_env(
-                        self.env, seed=int(self.np_rng.integers(0, 2**32))
-                    )
+                    try:
+                        obs, _info = reset_env(
+                            self.env, seed=int(self.np_rng.integers(0, 2**32))
+                        )
+                    except TypeError:
+                        obs, _info = reset_env(self.env)
 
                 progress.update(task, advance=1)
         
@@ -576,9 +579,8 @@ def main():
     parser.add_argument('--seed', type=int, default=None,
                        help='Random seed for reproducibility')
 
+    args = parser.parse_args()
 
-      args = parser.parse_args()
-    
     # Validate config files exist
     if not os.path.exists(args.cfg):
         raise FileNotFoundError(f"Config file not found: {args.cfg}")
