@@ -132,3 +132,7 @@ def test_collect_one_step(monkeypatch):
 
     rollouts = trainer._collect_rollouts(1)
     assert rollouts['observations'].shape == (1, 107)
+    assert rollouts['actions']['continuous_actions'].shape == (1, 5)
+    assert rollouts['actions']['discrete_actions'].shape == (1, 3)
+    assert rollouts['episode_rewards'] == [0.0]
+    assert rollouts['episode_lengths'] == [1]
