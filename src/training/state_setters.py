@@ -19,15 +19,16 @@ from rlgym.rocket_league.common_values import (
     CAR_MAX_ANG_VEL,
 )
 
+
 def rand_vec3(rng: np.random.Generator, max_magnitude: float = 1.0) -> np.ndarray:
     """Generate a random 3D vector with components in [-max_magnitude, max_magnitude]."""
     return rng.uniform(-max_magnitude, max_magnitude, 3)
 
-=======
 
 class DefaultState:
     """Placeholder for compatibility during testing."""
-    def reset(self, state_wrapper: StateWrapper):
+
+    def reset(self, state_wrapper: "StateWrapper"):
         # Center the ball and stop motion
         state_wrapper.ball.set_pos(0, 0, BALL_RADIUS)
         state_wrapper.ball.set_lin_vel(0, 0, 0)
@@ -41,6 +42,7 @@ class DefaultState:
 
 class StateWrapper:
     """Minimal stand-in used only for type hints in tests."""
+
     def __init__(self):
         self.cars = []
         self.ball = type("Ball", (), {"position": np.zeros(3)})()
