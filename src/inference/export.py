@@ -66,6 +66,8 @@ def main() -> None:
 
             def forward(self, obs: torch.Tensor):
                 out = self.policy(obs)
+                if isinstance(out, tuple):
+                    return out
                 return out["continuous_actions"], out["discrete_actions"]
 
         example = torch.zeros(1, args.obs_dim, device=device)
