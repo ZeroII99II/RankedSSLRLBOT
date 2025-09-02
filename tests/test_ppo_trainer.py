@@ -87,6 +87,10 @@ env_factory_mod.DISC_DIM = 3
 sys.modules.setdefault("src.training.env_factory", env_factory_mod)
 
 from src.training.env_factory import CONT_DIM, DISC_DIM
+
+import src.training.state_setters as state_setters_mod
+state_setters_mod.SSLStateSetter = object
+
 from src.training.train import PPOTrainer
 
 
@@ -94,6 +98,8 @@ class DummyEnv:
     def __init__(self):
         self.step_count = 0
         self.action_space = types.SimpleNamespace(seed=lambda *args, **kwargs: None)
+
+        self.action_space = type('AS', (), {'seed': lambda self, val: None})()
 
     def reset(self):
         return np.zeros(107, dtype=np.float32), {}
@@ -111,6 +117,8 @@ class NonTerminatingEnv:
     def __init__(self):
         self.step_count = 0
         self.action_space = types.SimpleNamespace(seed=lambda *args, **kwargs: None)
+
+        self.action_space = type('AS', (), {'seed': lambda self, val: None})()
 
     def reset(self):
         return np.zeros(107, dtype=np.float32), {}
