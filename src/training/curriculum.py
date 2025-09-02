@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from pathlib import Path
 import numpy as np
+import logging
 
 
 @dataclass
@@ -438,11 +439,20 @@ class CurriculumManager:
             return False
 
         # Remaining gates are treated as evaluation metric thresholds
+        missing_metrics = []
         for metric, threshold in gates.items():
             if metric == "min_games":
                 continue
-            if eval_metrics.get(metric, float("-inf")) < threshold:
+            value = eval_metrics.get(metric)
+            if value is None:
+                logging.warning("Missing evaluation metric: %s", metric)
+                missing_metrics.append(metric)
+                continue
+            if value < threshold:
                 return False
+
+        if missing_metrics:
+            return False
 
         return True
     

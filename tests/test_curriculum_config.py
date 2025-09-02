@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import logging
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
@@ -54,4 +55,26 @@ def test_can_progress_when_thresholds_met():
     }
 
     assert manager.can_progress(eval_metrics), "Bronze phase should allow progression when thresholds are met"
+
+
+def test_can_progress_missing_metric_blocks_and_logs(caplog):
+    manager = CurriculumManager("configs/curriculum.yaml")
+
+    manager.current_phase = "bronze"
+    bronze = manager.get_current_phase()
+    required_steps = max(bronze.min_training_steps, bronze.progression_gates["min_games"])
+    manager.training_steps = required_steps
+
+    eval_metrics = {
+        "on_target_pct": bronze.progression_gates["on_target_pct"],
+        # intentionally omit "recoveries_per_min"
+    }
+
+    with caplog.at_level(logging.WARNING):
+        result = manager.can_progress(eval_metrics)
+
+    assert not result, "Progression should be blocked when metrics are missing"
+    assert any(
+        "Missing evaluation metric" in record.message for record in caplog.records
+    ), "Missing metric should be logged"
 
