@@ -2,19 +2,38 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import torch
+import yaml
 
 DEFAULT_OUT = "models/exported/ssl_policy.ts"
+# Fallback dimensions when configuration does not specify them
 OBS_DIM_DEFAULT = 107
 CONT_DIM = 5
 DISC_DIM = 3
+DEFAULT_CFG = Path(__file__).resolve().parents[2] / "configs/ppo_ssl.yaml"
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--sb3", action="store_true", help="export from SB3 PPO zip")
     ap.add_argument("--ckpt", type=str, required=True, help="path to checkpoint")
     ap.add_argument("--out", type=str, default=DEFAULT_OUT, help="output TorchScript path")
-    ap.add_argument("--obs_dim", type=int, default=OBS_DIM_DEFAULT)
+    ap.add_argument(
+        "--cfg",
+        type=str,
+        default=None,
+        help="training config to derive policy architecture (default: configs/ppo_ssl.yaml)",
+    )
     args = ap.parse_args()
+
+    # Load policy configuration
+    cfg_path = Path(args.cfg) if args.cfg else DEFAULT_CFG
+    policy_cfg = {}
+    if cfg_path.is_file():
+        with cfg_path.open() as f:
+            policy_cfg = yaml.safe_load(f).get("policy", {})
+
+    obs_dim = policy_cfg.get("obs_dim", OBS_DIM_DEFAULT)
+    cont_dim = policy_cfg.get("continuous_actions", CONT_DIM)
+    disc_dim = policy_cfg.get("discrete_actions", DISC_DIM)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -36,22 +55,18 @@ def main() -> None:
                 if self.mlp_extractor is not None:
                     x, _ = self.mlp_extractor(x)
                 logits = self.action_net(x)
-                a_cont = torch.tanh(logits[:, :CONT_DIM])
-                a_disc_logits = logits[:, CONT_DIM:CONT_DIM+DISC_DIM]
+                a_cont = torch.tanh(logits[:, :cont_dim])
+                a_disc_logits = logits[:, cont_dim:cont_dim+disc_dim]
                 return a_cont, a_disc_logits
 
         module = SB3Wrapper(policy).to(device)
-        example = torch.zeros(1, args.obs_dim, device=device)
+        example = torch.zeros(1, obs_dim, device=device)
         scripted = torch.jit.trace(module, example)
     else:
         from src.training.policy import create_ssl_policy
 
-        # Create default SSL policy with specified observation and action dimensions
-        ssl_policy = create_ssl_policy({
-            "obs_dim": args.obs_dim,
-            "continuous_actions": CONT_DIM,
-            "discrete_actions": DISC_DIM,
-        }).to(device)
+        # Create SSL policy from configuration
+        ssl_policy = create_ssl_policy(policy_cfg).to(device)
         ckpt = torch.load(args.ckpt, map_location=device)
         state_dict = ckpt.get("model_state_dict") or ckpt.get("state_dict") or ckpt
         ssl_policy.load_state_dict(state_dict, strict=False)
@@ -70,7 +85,7 @@ def main() -> None:
                     return out
                 return out["continuous_actions"], out["discrete_actions"]
 
-        example = torch.zeros(1, args.obs_dim, device=device)
+        example = torch.zeros(1, obs_dim, device=device)
         scripted = torch.jit.trace(PolicyWrapper(ssl_policy), example)
 
     out_path = Path(args.out)

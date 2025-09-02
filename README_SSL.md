@@ -21,6 +21,7 @@ Use `--seed` to make training runs deterministic.
 ```bash
 python -m src.inference.export --ckpt models/checkpoints/best.pt --out models/exported/ssl_policy.ts
 ```
+The exporter reads `configs/ppo_ssl.yaml` to rebuild the model. Use `--cfg` to supply a different training configuration.
 
 ### 4) Watch in Rocket League (RLBot)
 
@@ -36,6 +37,9 @@ scripts/run_rlbot_local.bat  # or .sh on Linux/Mac
 # Run the PPO trainer smoke tests
 pytest tests/test_real_env_smoke.py
 
+# RLBot integration test
+pytest tests/test_rlbot_integration.py
+
 # Run the full suite
 pytest
 ```
@@ -44,7 +48,7 @@ pytest
 
 ```bash
 python src/training/train_v2.py --envs 8 --steps 1000000
-python src/inference/export.py --sb3 --ckpt models/checkpoints/best_sb3.zip --out models/exported/ssl_policy.ts --obs_dim 107
+python src/inference/export.py --sb3 --ckpt models/checkpoints/best_sb3.zip --out models/exported/ssl_policy.ts --cfg configs/ppo_ssl.yaml
 ```
 
 ## 📋 Table of Contents
@@ -308,6 +312,8 @@ python -m src.inference.export --ckpt models/checkpoints/checkpoint_1000000.pt -
 python -m src.inference.export --ckpt models/checkpoints/best.pt --out models/exported/ssl_policy.ts --test
 ```
 
+The script reads `configs/ppo_ssl.yaml` by default to match the training setup. Use `--cfg` to specify a different config file.
+
 ### Export Options
 
 ```bash
@@ -315,7 +321,7 @@ python -m src.inference.export --ckpt models/checkpoints/best.pt --out models/ex
 python -m src.inference.export --ckpt models/checkpoints/best.pt --out models/exported/ssl_policy.ts --use-script
 
 # Load custom configuration
-python -m src.inference.export --ckpt models/checkpoints/best.pt --out models/exported/ssl_policy.ts --config configs/ppo_ssl.yaml
+python -m src.inference.export --ckpt models/checkpoints/best.pt --out models/exported/ssl_policy.ts --cfg configs/ppo_ssl.yaml
 
 # Load observation statistics
 python -m src.inference.export --ckpt models/checkpoints/best.pt --out models/exported/ssl_policy.ts --obs-stats obs_stats.npy
@@ -404,7 +410,7 @@ max_inference_time = 0.01
 
 ## Streaming
 
-See [docs/streaming.md](docs/streaming.md) for instructions on continuous training, displaying the policy in Rocket League, and broadcasting matches to Twitch.
+See [docs/streaming.md](docs/streaming.md) for how to launch the trainer with `--render`, visualise the latest policy in Rocket League and broadcast the window to Twitch.
 
 ## ⚙️ Configuration
 
