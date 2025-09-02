@@ -44,8 +44,8 @@ def test_can_progress_when_thresholds_met():
     bronze = manager.get_current_phase()
 
     # Satisfy both min_training_steps and min_games gates
-    required_steps = max(bronze.min_training_steps, bronze.progression_gates["min_games"])
-    manager.training_steps = required_steps
+    manager.training_steps = bronze.min_training_steps
+    manager.update_games(bronze.progression_gates["min_games"])
 
     # Provide evaluation metrics that meet or exceed thresholds
     eval_metrics = {
