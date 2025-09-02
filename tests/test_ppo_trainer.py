@@ -128,8 +128,7 @@ def test_collect_one_step(monkeypatch):
     monkeypatch.setattr('src.training.train.create_ssl_policy', lambda cfg: DummyPolicy())
     monkeypatch.setattr('src.training.train.create_ssl_critic', lambda cfg: DummyCritic())
 
-    trainer = PPOTrainer('cfg', 'curr')
-
+    trainer = PPOTrainer('cfg', 'curr
     rollouts = trainer._collect_rollouts(2)
     assert rollouts['observations'].shape == (2, 107)
 
@@ -151,3 +150,9 @@ def test_collect_one_step(monkeypatch):
     assert set(['policy_loss', 'value_loss', 'entropy_loss']).issubset(losses)
     for value in losses.values():
         assert np.isfinite(value)
+=======
+    rollouts = trainer._collect_rollouts(1)
+    assert rollouts['observations'].shape == (1, 107)
+    assert rollouts['actions']['continuous_actions'].shape == (1, 5)
+    assert rollouts['actions']['discrete_actions'].shape == (1, 3)
+
