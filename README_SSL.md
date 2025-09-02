@@ -404,7 +404,7 @@ max_inference_time = 0.01
 
 ## Streaming
 
-See [docs/streaming.md](docs/streaming.md) for instructions on continuous training, displaying the policy in Rocket League, and broadcasting matches to Twitch.
+See [docs/streaming.md](docs/streaming.md) for how to launch the trainer with `--render`, visualise the latest policy in Rocket League and broadcast the window to Twitch.
 
 ## ⚙️ Configuration
 

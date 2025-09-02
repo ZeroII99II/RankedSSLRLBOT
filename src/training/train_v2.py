@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse, os
+import argparse, os, threading
 import torch
 from stable_baselines3 import PPO
 from src.training.env_factory import make_env
@@ -12,6 +12,7 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--ckpt_dir", type=str, default="models/checkpoints")
     ap.add_argument("--tensorboard", type=str, default="runs/ssl_v2")
+    ap.add_argument("--render", action="store_true", help="Render a single env in a viewer thread")
     args = ap.parse_args()
 
     os.makedirs(args.ckpt_dir, exist_ok=True)
@@ -37,6 +38,29 @@ def main():
         seed=args.seed,
         device="cuda" if torch.cuda.is_available() else "cpu",
     )
+
+    if args.render:
+        def _viewer():
+            env = make_env(seed=args.seed)()
+            obs, _ = env.reset()
+            import matplotlib.pyplot as plt
+
+            plt.ion()
+            fig, ax = plt.subplots()
+            img = ax.imshow(env.render())
+            ax.axis("off")
+
+            while True:
+                action, _ = model.predict(obs, deterministic=True)
+                obs, _, terminated, truncated, _ = env.step(action)
+                frame = env.render()
+                img.set_data(frame)
+                plt.pause(0.01)
+                if terminated or truncated:
+                    obs, _ = env.reset()
+
+        threading.Thread(target=_viewer, daemon=True).start()
+
     model.learn(total_timesteps=args.steps)
     model.save(os.path.join(args.ckpt_dir, "best_sb3.zip"))
 

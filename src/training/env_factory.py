@@ -38,7 +38,10 @@ DISC_DIM = 3
 class RL2v2Env(gym.Env):
     """Small 2v2 Rocket League environment using project builders."""
 
-    metadata = {"render_modes": []}
+    # ``gym.Env`` expects ``metadata['render_modes']`` to advertise the
+    # available render modes.  We support a single RGB array mode which is
+    # used by the training script when ``--render`` is supplied.
+    metadata = {"render_modes": ["rgb_array"], "render_fps": 60}
 
     def __init__(self, seed: int = 42):
         super().__init__()
@@ -137,6 +140,50 @@ class RL2v2Env(gym.Env):
             self._state.players[0], self._state, self._prev_action
         )
         return obs.astype(np.float32), float(reward), False, False, {}
+
+    # ------------------------------------------------------------------
+    # Rendering
+    def render(self, mode: str = "rgb_array"):
+        """Render a simple top-down view of the field.
+
+        Parameters
+        ----------
+        mode:
+            Only ``"rgb_array"`` is supported.  The function returns a
+            ``(H, W, 3)`` ``uint8`` array representing the frame.
+        """
+
+        if mode != "rgb_array":
+            raise NotImplementedError(f"Unsupported render mode: {mode}")
+        if self._state is None:
+            raise RuntimeError("Environment must be reset before rendering")
+
+        width, height = 320, 240
+        frame = np.zeros((height, width, 3), dtype=np.uint8)
+        frame[:] = (40, 160, 40)  # simple green field
+
+        def _project(pos: np.ndarray) -> tuple[int, int]:
+            # Map world coordinates roughly spanning [-3000, 3000] in X and
+            # [-4000, 4000] in Y to pixel coordinates.
+            x = int((np.clip(pos[0], -3000, 3000) + 3000) / 6000 * width)
+            y = int((np.clip(pos[1], -4000, 4000) + 4000) / 8000 * height)
+            return x, height - y - 1  # origin at bottom left
+
+        # Draw players
+        for player in self._state.players:
+            px, py = _project(player.car_data.position)
+            color = (255, 0, 0) if player.team_num == 0 else (0, 0, 255)
+            x0, x1 = max(0, px - 2), min(width, px + 3)
+            y0, y1 = max(0, py - 2), min(height, py + 3)
+            frame[y0:y1, x0:x1] = color
+
+        # Draw ball
+        bx, by = _project(self._state.ball.position)
+        x0, x1 = max(0, bx - 2), min(width, bx + 3)
+        y0, y1 = max(0, by - 2), min(height, by + 3)
+        frame[y0:y1, x0:x1] = (255, 255, 255)
+
+        return frame
 
 
 def make_env(seed: int = 42) -> Callable[[], RL2v2Env]:
