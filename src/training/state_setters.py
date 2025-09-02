@@ -10,8 +10,7 @@ import random
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 
-from src.compat.rlgym_v2_compat import StateSetter
-from src.compat.rlgym_v2_compat.common_values import (
+from rlgym.rocket_league.common_values import (
     CAR_MAX_SPEED,
     BALL_MAX_SPEED,
     CEILING_Z,
@@ -47,7 +46,7 @@ class StateWrapper:
         self.ball = type("Ball", (), {"position": np.zeros(3)})()
 
 
-class ModernStateSetter(StateSetter):
+class ModernStateSetter:
     """
     SSL-focused state setter with curriculum-based scenario sampling.
     

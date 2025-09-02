@@ -12,8 +12,7 @@ from rlgym.api.config import (
     ObsBuilder as APIObsBuilder,
 )
 
-from src.compat.rlgym_v2_compat.common_values import BOOST_LOCATIONS, CAR_MAX_SPEED
-from src.compat.rlgym_v2_compat import GameState, PlayerData, CarData, BoostPad, BallData
+from rlgym.rocket_league.common_values import BOOST_LOCATIONS, CAR_MAX_SPEED
 from src.utils.gym_compat import gym
 
 
@@ -46,12 +45,32 @@ class BoostPad:
     is_active: bool = True
 
 
-
 class SimpleActionParser(APIActionParser[int, Dict[str, np.ndarray], np.ndarray, GameState, gym.spaces.Dict]):
     """Action parser converting env dict actions to RLGym's engine format."""
 
     def __init__(self, action_space: gym.spaces.Dict):
         self._action_space = action_space
+
+    def get_action_space(self, agent: int) -> gym.spaces.Dict:
+        return self._action_space
+
+    def parse_actions(
+        self,
+        actions: Dict[int, Dict[str, np.ndarray]],
+        state: GameState,
+        shared_info: Dict[str, Any],
+    ) -> Dict[int, np.ndarray]:
+        engine_actions: Dict[int, np.ndarray] = {}
+        for agent, act in actions.items():
+            a_cont = np.clip(act["cont"].astype(np.float32), -1.0, 1.0)
+            a_disc = act["disc"].astype(np.float32).clip(0, 1)
+            engine_actions[agent] = to_rlgym(a_cont, a_disc)
+        return engine_actions
+
+    def reset(
+        self, agents: List[int], initial_state: GameState, shared_info: Dict[str, Any]
+    ) -> None:
+        pass
 
 class BallObject(PhysicsObject):
     __slots__ = PhysicsObject.__slots__
@@ -179,7 +198,6 @@ class Player:
     def boost_amount(self, val: float):
         self.car_data.boost_amount = float(val)
 
-
 class RLGameState(GameState):
     __slots__ = GameState.__slots__ + (
         "players",
@@ -190,90 +208,6 @@ class RLGameState(GameState):
         "is_overtime",
         "is_kickoff_pause",
     )
-
-
-    def get_action_space(self, agent: int) -> gym.spaces.Dict:
-        return self._action_space
-
-    def reset(self, agents: List[int], initial_state: GameState, shared_info: Dict[str, Any]) -> None:
-        pass
-    def __init__(self, seed: int = 42):
-        super().__init__()
-        self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(OBS_SIZE,), dtype=np.float32)
-        self.action_space = gym.spaces.Dict({
-            "cont": gym.spaces.Box(low=-1.0, high=1.0, shape=(CONT_DIM,), dtype=np.float32),
-            "disc": gym.spaces.MultiBinary(DISC_DIM)
-        })
-        self.np_random, _ = gym.utils.seeding.np_random(seed)
-        self._prev_action = np.zeros(CONT_DIM + DISC_DIM, dtype=np.float32)
-
-        # Core RLGymv2-style components
-        self._obs_builder = ModernObsBuilder()
-        self._reward_fn = ModernRewardSystem()
-        self._state_setter = ModernStateSetter()
-
-        # Create underlying physics objects shared between state wrapper and game state
-        cars = [CarObject(0), CarObject(0), CarObject(1), CarObject(1)]
-        players = [Player(c) for c in cars]
-        boost_pads = [BoostPad(pos.copy()) for pos in BOOST_LOCATIONS]
-        self._ball = BallObject()
-
-        # Wrapper used by the state setter to configure scenarios
-        self._state_wrapper = type("StateWrapper", (), {})()
-        self._state_wrapper.cars = cars
-        self._state_wrapper.ball = self._ball
-
-        # Game state object passed to builders/rewards
-        self._state = RLGameState()
-        self._state.tick_count = 0
-        self._state.goal_scored = False
-        self._state.config = GameConfig()
-        self._state.cars = {i: c for i, c in enumerate(cars)}
-        self._state.ball = self._ball
-        self._state._inverted_ball = None
-        self._state.boost_pad_timers = np.zeros(len(BOOST_LOCATIONS), dtype=np.float32)
-        self._state._inverted_boost_pad_timers = None
-        self._state.blue_score = 0
-        self._state.orange_score = 0
-        self._state.game_seconds_remaining = 300.0
-        self._state.is_overtime = False
-        self._state.is_kickoff_pause = False
-        self._state.boost_pads = boost_pads
-        self._state.players = players
-
-        # Two controlled players (first two on blue team)
-        self._controlled: List[Player] = players[:2]
-
-    # Gymnasium API:
-    def reset(self, *, seed: int | None = None, options: Dict[str, Any] | None = None):
-        if seed is not None:
-            self.np_random, _ = gym.utils.seeding.np_random(seed)
-        # Apply state setter to configure kickoff / scenario. Some of the
-        # placeholder state setters used in tests lack full implementations,
-        # so we guard against missing methods.
-        try:
-            self._state_setter.reset(self._state_wrapper)
-        except AttributeError:
-            pass
-
-        # Builders expect the game state to be up to date after state setter
-        self._obs_builder.reset(self._state)
-        self._reward_fn.reset(self._state)
-
-        obs_vec = self._obs_builder.build_obs(self._controlled[0], self._state, self._prev_action)
-        info: Dict[str, Any] = {}
-        self._prev_action[:] = 0
-        return obs_vec.astype(np.float32), info
-
-    def parse_actions(
-        self, actions: Dict[int, Dict[str, np.ndarray]], state: GameState, shared_info: Dict[str, Any]
-    ) -> Dict[int, np.ndarray]:
-        engine_actions: Dict[int, np.ndarray] = {}
-        for agent, act in actions.items():
-            a_cont = np.clip(act["cont"].astype(np.float32), -1.0, 1.0)
-            a_disc = act["disc"].astype(np.float32).clip(0, 1)
-            engine_actions[agent] = to_rlgym(a_cont, a_disc)
-        return engine_actions
 
 
 class SimplePhysicsEngine(APITransitionEngine[int, GameState, np.ndarray]):
@@ -342,11 +276,25 @@ class SimplePhysicsEngine(APITransitionEngine[int, GameState, np.ndarray]):
         return self._state
 
     def create_base_state(self) -> GameState:
-        ball = BallData()
-        cars = [CarData(0), CarData(0), CarData(1), CarData(1)]
-        players = [PlayerData(c, c.team_num) for c in cars]
-        boost_pads = [BoostPad(pos.copy()) for pos in BOOST_LOCATIONS]
-        return GameState(ball, players, boost_pads)
+        cars = [CarObject(0), CarObject(0), CarObject(1), CarObject(1)]
+        players = [Player(c) for c in cars]
+        state = RLGameState()
+        state.tick_count = 0
+        state.goal_scored = False
+        state.config = GameConfig()
+        state.cars = {i: c for i, c in enumerate(cars)}
+        state.players = players
+        state.ball = BallObject()
+        state._inverted_ball = None
+        state.boost_pad_timers = np.zeros(len(BOOST_LOCATIONS), dtype=np.float32)
+        state._inverted_boost_pad_timers = None
+        state.boost_pads = [BoostPad(np.array(pos, dtype=np.float32)) for pos in BOOST_LOCATIONS]
+        state.blue_score = 0
+        state.orange_score = 0
+        state.game_seconds_remaining = 300.0
+        state.is_overtime = False
+        state.is_kickoff_pause = False
+        return state
 
     def set_state(self, desired_state: GameState, shared_info: Dict[str, Any]) -> GameState:
         self._state = desired_state
