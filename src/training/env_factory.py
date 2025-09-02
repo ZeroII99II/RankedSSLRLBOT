@@ -39,7 +39,6 @@ from rlgym.rocket_league.sim.rocketsim_engine import RocketSimEngine
 from rlgym.rocket_league.done_conditions.goal_condition import GoalCondition
 from rlgym.rocket_league.done_conditions.timeout_condition import TimeoutCondition
 
-from src.compat.rlgym_v2_compat import common_values
 from src.training.state_setters.scenarios import SCENARIOS
 
 
@@ -47,9 +46,6 @@ from src.training.state_setters.scenarios import SCENARIOS
 CONT_DIM = 5
 DISC_DIM = 3
 
-
-class RLMatchEnv(gym.Env):
-    """Small Rocket League environment with configurable team sizes."""
 
 class CarDataWrapper:
     """Expose the minimal car interface expected by our builders."""
@@ -150,9 +146,7 @@ class RL2v2Env(gym.Env):
 
     metadata = {"render_modes": ["rgb_array", "human"]}
 
-    def __init__(self, seed: int = 42, num_players_per_team: int = 2):
-
-    def __init__(self, seed: int = 42, render: bool = False):
+    def __init__(self, seed: int = 42, render: bool = False, num_players_per_team: int = 2):
         super().__init__()
 
         # Observation and action spaces mirror the production setup.
@@ -206,33 +200,29 @@ class RL2v2Env(gym.Env):
         return {str(k): float(v) for k, v in data.items() if k in self._scenario_funcs}
 
     def _random_state(self) -> GameState:
-        """Create a randomly-initialised game state for the configured teams."""
-        players = []
-        total_players = 2 * self._num_players_per_team
-        for i in range(total_players):
-            team = 0 if i < self._num_players_per_team else 1
-            car = CarData(team_num=team)
-            car.set_pos(*self.np_random.uniform(-1000, 1000, size=3))
-            car.set_lin_vel(*self.np_random.uniform(-500, 500, size=3))
-            car.set_ang_vel(*self.np_random.uniform(-5, 5, size=3))
-            car.set_rot(*self.np_random.uniform(-np.pi, np.pi, size=3))
-            player = PlayerData(
-                car_data=car,
-                team_num=team,
-                boost_amount=float(self.np_random.uniform(0, 100)),
-            )
-            players.append(player)
+        """Create a ``GameState`` from the configured scenarios.
 
-        ball = BallData()
-        ball.set_pos(*self.np_random.uniform(-1000, 1000, size=3))
-        ball.set_lin_vel(*self.np_random.uniform(-500, 500, size=3))
+        The environment samples a scenario based on the configured weights. If
+        the selected scenario already returns a :class:`GameState` instance it is
+        used directly.  Otherwise a fallback random state is generated using the
+        internal RocketSim engine.
+        """
 
-        pads = [BoostPad(position=loc.astype(np.float32)) for loc in common_values.BOOST_LOCATIONS]
+        names = list(self._scenario_funcs.keys())
+        weights = np.array(
+            [self._scenario_weights.get(n, 1.0) for n in names], dtype=float
+        )
+        if weights.sum() <= 0:
+            weights = np.ones_like(weights)
+        weights = weights / weights.sum()
 
-        return GameState(ball=ball, players=players, boost_pads=pads)
+        choice = self.np_random.choice(names, p=weights)
+        scenario_fn = self._scenario_funcs[choice]
+        state = scenario_fn(self.np_random)
+        if isinstance(state, GameState):
+            return state
 
-        """Create a randomly-initialised 2v2 RLGym ``GameState``."""
-
+        # Fallback: create a random state using the real engine
         gs = self._engine.create_base_state()
         gs.tick_count = 0
         gs.goal_scored = False
@@ -240,15 +230,22 @@ class RL2v2Env(gym.Env):
         # Random ball
         ball = PhysicsObject()
         ball.position = self.np_random.uniform(-1000, 1000, size=3).astype(np.float32)
-        ball.linear_velocity = self.np_random.uniform(-500, 500, size=3).astype(np.float32)
-        ball.angular_velocity = self.np_random.uniform(-5, 5, size=3).astype(np.float32)
-        ball.euler_angles = self.np_random.uniform(-np.pi, np.pi, size=3).astype(np.float32)
+        ball.linear_velocity = self.np_random.uniform(-500, 500, size=3).astype(
+            np.float32
+        )
+        ball.angular_velocity = self.np_random.uniform(-5, 5, size=3).astype(
+            np.float32
+        )
+        ball.euler_angles = self.np_random.uniform(-np.pi, np.pi, size=3).astype(
+            np.float32
+        )
         gs.ball = ball
 
         # Random cars
         gs.cars = {}
-        for i in range(4):
-            team = 0 if i < 2 else 1
+        total_players = 2 * self._num_players_per_team
+        for i in range(total_players):
+            team = 0 if i < self._num_players_per_team else 1
             car = Car()
             car.team_num = team
             car.hitbox_type = 0
@@ -273,10 +270,18 @@ class RL2v2Env(gym.Env):
             car.autoflip_timer = 0.0
             car.autoflip_direction = 1.0
             phys = PhysicsObject()
-            phys.position = self.np_random.uniform(-1000, 1000, size=3).astype(np.float32)
-            phys.linear_velocity = self.np_random.uniform(-500, 500, size=3).astype(np.float32)
-            phys.angular_velocity = self.np_random.uniform(-5, 5, size=3).astype(np.float32)
-            phys.euler_angles = self.np_random.uniform(-np.pi, np.pi, size=3).astype(np.float32)
+            phys.position = self.np_random.uniform(-1000, 1000, size=3).astype(
+                np.float32
+            )
+            phys.linear_velocity = self.np_random.uniform(-500, 500, size=3).astype(
+                np.float32
+            )
+            phys.angular_velocity = self.np_random.uniform(-5, 5, size=3).astype(
+                np.float32
+            )
+            phys.euler_angles = self.np_random.uniform(-np.pi, np.pi, size=3).astype(
+                np.float32
+            )
             car.physics = phys
             gs.cars[i] = car
 
@@ -288,17 +293,6 @@ class RL2v2Env(gym.Env):
         gs.config.dodge_deadzone = 0.5
 
         return gs
-
-        """Create a scenario-driven 2v2 game state."""
-        names = list(self._scenario_funcs.keys())
-        weights = np.array([self._scenario_weights.get(n, 1.0) for n in names], dtype=float)
-        if weights.sum() <= 0:
-            weights = np.ones_like(weights)
-        weights = weights / weights.sum()
-
-        choice = self.np_random.choice(names, p=weights)
-        scenario_fn = self._scenario_funcs[choice]
-        return scenario_fn(self.np_random)
 
     # ------------------------------------------------------------------
     # Gym API
@@ -437,12 +431,6 @@ class RL2v2Env(gym.Env):
                 pass
         return frame
 
-
-def make_env(seed: int = 42, team_size: int = 2) -> Callable[[], RLMatchEnv]:
-    """Return a thunk that creates a seeded ``RLMatchEnv`` instance."""
-
-    def _thunk() -> RLMatchEnv:
-        return RLMatchEnv(seed=seed, num_players_per_team=team_size)
 
 def make_env(seed: int = 42, render: bool = False) -> Callable[[], RL2v2Env]:
     """Return a thunk that creates a seeded ``RL2v2Env`` instance."""

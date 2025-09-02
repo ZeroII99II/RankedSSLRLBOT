@@ -119,6 +119,14 @@ def test_create_environment(monkeypatch):
     gym_mod.spaces = types.SimpleNamespace(Box=object)
     sys.modules["gymnasium"] = gym_mod
 
+    import src.training.state_setters as state_setters_mod
+    class DummySetter:
+        def __init__(self, *args, **kwargs):
+            pass
+    state_setters_mod.SSLStateSetter = DummySetter
+
+    if 'src.training.train' in sys.modules:
+        del sys.modules['src.training.train']
     from src.training.train import PPOTrainer
 
     trainer = PPOTrainer.__new__(PPOTrainer)

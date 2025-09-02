@@ -1,9 +1,9 @@
-"""Scenario helpers for constructing ``GameState`` instances.
+"""Scenario helpers for constructing :class:`GameState` instances.
 
 These functions provide lightweight starting states for different training
 situations.  Each helper accepts an ``np.random.Generator`` to ensure
-deterministic sampling when seeded.  The resulting ``GameState`` objects are
-compatible with the simplified compatibility layer used in tests.
+deterministic sampling when seeded.  The resulting :class:`GameState` objects
+use the real RLGym v2 data structures.
 """
 
 from __future__ import annotations
@@ -12,95 +12,142 @@ from typing import Callable, Dict
 
 import numpy as np
 
-from src.compat.rlgym_v2_compat.game_state import (
-    GameState,
-    PlayerData,
-    CarData,
-    BallData,
-    BoostPad,
+from rlgym.rocket_league.api import GameState, Car, PhysicsObject, GameConfig
+from rlgym.rocket_league.common_values import (
+    BOOST_LOCATIONS,
+    BALL_RADIUS,
+    SIDE_WALL_X,
+    BACK_WALL_Y,
 )
-from src.compat.rlgym_v2_compat import common_values
 
 
-def _boost_pads() -> list[BoostPad]:
-    """Create boost pad instances from static locations."""
-    return [
-        BoostPad(position=loc.astype(np.float32))
-        for loc in common_values.BOOST_LOCATIONS
-    ]
+def _empty_state() -> GameState:
+    """Create a blank ``GameState`` with default configuration."""
+    gs = GameState()
+    gs.tick_count = 0
+    gs.goal_scored = False
+    cfg = GameConfig()
+    cfg.gravity = 1
+    cfg.boost_consumption = 1
+    cfg.dodge_deadzone = 0.5
+    gs.config = cfg
+    gs.cars = {}
+    gs.boost_pad_timers = np.zeros(len(BOOST_LOCATIONS), dtype=np.float32)
+    gs.ball = PhysicsObject()
+    return gs
 
 
-def _basic_players(rng: np.random.Generator) -> list[PlayerData]:
-    """Return four players placed randomly on the field."""
-    players: list[PlayerData] = []
-    for i in range(4):
-        team = 0 if i < 2 else 1
-        car = CarData(team_num=team)
-        car.set_pos(*rng.uniform(-1000, 1000, size=3))
-        car.set_lin_vel(0, 0, 0)
-        car.set_ang_vel(0, 0, 0)
-        car.set_rot(0, 0, 0)
-        players.append(PlayerData(car_data=car, team_num=team, boost_amount=100.0))
-    return players
+def _car(
+    rng: np.random.Generator,
+    team: int,
+    position: np.ndarray,
+    lin_vel: np.ndarray | None = None,
+    ang_vel: np.ndarray | None = None,
+    rot: np.ndarray | None = None,
+    boost: float = 100.0,
+) -> Car:
+    """Construct a minimal ``Car`` with the provided parameters."""
+    car = Car()
+    car.team_num = team
+    car.hitbox_type = 0
+    car.ball_touches = 0
+    car.bump_victim_id = None
+    car.demo_respawn_timer = 0.0
+    car.wheels_with_contact = (True, True, True, True)
+    car.supersonic_time = 0.0
+    car.boost_amount = boost
+    car.boost_active_time = 0.0
+    car.handbrake = 0.0
+    car.is_jumping = False
+    car.has_jumped = False
+    car.is_holding_jump = False
+    car.jump_time = 0.0
+    car.has_flipped = False
+    car.has_double_jumped = False
+    car.air_time_since_jump = 0.0
+    car.flip_time = 0.0
+    car.flip_torque = np.zeros(3, dtype=np.float32)
+    car.is_autoflipping = False
+    car.autoflip_timer = 0.0
+    car.autoflip_direction = 1.0
+    phys = PhysicsObject()
+    phys.position = position.astype(np.float32)
+    phys.linear_velocity = (
+        lin_vel.astype(np.float32) if lin_vel is not None else np.zeros(3, dtype=np.float32)
+    )
+    phys.angular_velocity = (
+        ang_vel.astype(np.float32) if ang_vel is not None else np.zeros(3, dtype=np.float32)
+    )
+    phys.euler_angles = (
+        rot.astype(np.float32) if rot is not None else np.zeros(3, dtype=np.float32)
+    )
+    car.physics = phys
+    return car
 
 
 def kickoff_state(rng: np.random.Generator) -> GameState:
     """Ball at centre field with cars in standard kickoff positions."""
-    players = _basic_players(rng)
+    gs = _empty_state()
     kickoff_positions = [
-        (-2048, -2560, common_values.BALL_RADIUS),
-        (2048, -2560, common_values.BALL_RADIUS),
-        (-2048, 2560, common_values.BALL_RADIUS),
-        (2048, 2560, common_values.BALL_RADIUS),
+        (-2048, -2560, BALL_RADIUS),
+        (2048, -2560, BALL_RADIUS),
+        (-2048, 2560, BALL_RADIUS),
+        (2048, 2560, BALL_RADIUS),
     ]
-    for player, (x, y, z) in zip(players, kickoff_positions):
-        player.car_data.set_pos(x, y, z)
+    for i, pos in enumerate(kickoff_positions):
+        team = 0 if i < 2 else 1
+        gs.cars[i] = _car(rng, team, np.array(pos, dtype=np.float32))
 
-    ball = BallData()
-    ball.set_pos(0, 0, common_values.BALL_RADIUS)
-    ball.set_lin_vel(0, 0, 0)
-    return GameState(ball=ball, players=players, boost_pads=_boost_pads())
+    ball = PhysicsObject()
+    ball.position = np.array([0, 0, BALL_RADIUS], dtype=np.float32)
+    ball.linear_velocity = np.zeros(3, dtype=np.float32)
+    ball.angular_velocity = np.zeros(3, dtype=np.float32)
+    ball.euler_angles = np.zeros(3, dtype=np.float32)
+    gs.ball = ball
+    return gs
 
 
 def corner_shot_state(rng: np.random.Generator) -> GameState:
     """Ball positioned in a corner moving toward the opposite goal."""
-    players = _basic_players(rng)
+    gs = _empty_state()
+    for i in range(4):
+        team = 0 if i < 2 else 1
+        pos = rng.uniform(-1000, 1000, size=3)
+        gs.cars[i] = _car(rng, team, pos)
 
-    ball = BallData()
-    x = common_values.SIDE_WALL_X - 200
-    y = common_values.BACK_WALL_Y - 200
+    ball = PhysicsObject()
+    x = SIDE_WALL_X - 200
+    y = BACK_WALL_Y - 200
     x *= -1 if rng.random() > 0.5 else 1
     y *= -1 if rng.random() > 0.5 else 1
-    ball.set_pos(x, y, common_values.BALL_RADIUS)
+    ball.position = np.array([x, y, BALL_RADIUS], dtype=np.float32)
     vel = np.array([-np.sign(x) * 1000, -np.sign(y) * 1000, 0], dtype=np.float32)
-    ball.set_lin_vel(*vel)
-
-    return GameState(ball=ball, players=players, boost_pads=_boost_pads())
+    ball.linear_velocity = vel
+    ball.angular_velocity = np.zeros(3, dtype=np.float32)
+    ball.euler_angles = np.zeros(3, dtype=np.float32)
+    gs.ball = ball
+    return gs
 
 
 def random_state(rng: np.random.Generator) -> GameState:
-    """Fully random state similar to the previous implementation."""
-    players: list[PlayerData] = []
+    """Fully randomised state."""
+    gs = _empty_state()
     for i in range(4):
         team = 0 if i < 2 else 1
-        car = CarData(team_num=team)
-        car.set_pos(*rng.uniform(-1000, 1000, size=3))
-        car.set_lin_vel(*rng.uniform(-500, 500, size=3))
-        car.set_ang_vel(*rng.uniform(-5, 5, size=3))
-        car.set_rot(*rng.uniform(-np.pi, np.pi, size=3))
-        players.append(
-            PlayerData(
-                car_data=car,
-                team_num=team,
-                boost_amount=float(rng.uniform(0, 100)),
-            )
-        )
+        pos = rng.uniform(-1000, 1000, size=3)
+        lin = rng.uniform(-500, 500, size=3)
+        ang = rng.uniform(-5, 5, size=3)
+        rot = rng.uniform(-np.pi, np.pi, size=3)
+        boost = float(rng.uniform(0, 100))
+        gs.cars[i] = _car(rng, team, pos, lin, ang, rot, boost)
 
-    ball = BallData()
-    ball.set_pos(*rng.uniform(-1000, 1000, size=3))
-    ball.set_lin_vel(*rng.uniform(-500, 500, size=3))
-
-    return GameState(ball=ball, players=players, boost_pads=_boost_pads())
+    ball = PhysicsObject()
+    ball.position = rng.uniform(-1000, 1000, size=3).astype(np.float32)
+    ball.linear_velocity = rng.uniform(-500, 500, size=3).astype(np.float32)
+    ball.angular_velocity = rng.uniform(-5, 5, size=3).astype(np.float32)
+    ball.euler_angles = rng.uniform(-np.pi, np.pi, size=3).astype(np.float32)
+    gs.ball = ball
+    return gs
 
 
 # Mapping used by the environment to look up scenarios by name
