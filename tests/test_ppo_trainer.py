@@ -70,12 +70,36 @@ sys.modules.setdefault("rlgym.rocket_league", rocket_mod)
 sys.modules.setdefault("rlgym.rocket_league.common_values", common_values_mod)
 sys.modules.setdefault("rlgym.rocket_league.api", api_rl_mod)
 
+# Stub project modules expected by PPOTrainer
+state_setters_mod = types.ModuleType("src.training.state_setters")
+
+
+class SSLStateSetter:
+    pass
+
+
+state_setters_mod.SSLStateSetter = SSLStateSetter
+sys.modules.setdefault("src.training.state_setters", state_setters_mod)
+
+env_factory_mod = types.ModuleType("src.training.env_factory")
+env_factory_mod.CONT_DIM = 5
+env_factory_mod.DISC_DIM = 3
+sys.modules.setdefault("src.training.env_factory", env_factory_mod)
+
+from src.training.env_factory import CONT_DIM, DISC_DIM
+
+import src.training.state_setters as state_setters_mod
+state_setters_mod.SSLStateSetter = object
+
 from src.training.train import PPOTrainer
 
 
 class DummyEnv:
     def __init__(self):
         self.step_count = 0
+        self.action_space = types.SimpleNamespace(seed=lambda *args, **kwargs: None)
+
+        self.action_space = type('AS', (), {'seed': lambda self, val: None})()
 
     def reset(self):
         return np.zeros(107, dtype=np.float32), {}
@@ -92,6 +116,9 @@ class DummyEnv:
 class NonTerminatingEnv:
     def __init__(self):
         self.step_count = 0
+        self.action_space = types.SimpleNamespace(seed=lambda *args, **kwargs: None)
+
+        self.action_space = type('AS', (), {'seed': lambda self, val: None})()
 
     def reset(self):
         return np.zeros(107, dtype=np.float32), {}
@@ -181,20 +208,16 @@ def test_collect_one_step(monkeypatch):
 
     trainer = PPOTrainer('cfg', 'curr')
     rollouts = trainer._collect_rollouts(2)
-    assert rollouts['observations'].shape == (2, 107)
-
-    # Stack action tensors if returned as list
-    actions_data = rollouts['actions']
-    if isinstance(actions_data, list):
-        rollouts['actions'] = {
-            k: torch.cat([a[k] for a in actions_data], dim=0) for k in actions_data[0]
-        }
-    else:
-        rollouts['actions'] = actions_data
-
-    # Ensure stacked action tensors match observation count
-    assert rollouts['actions']['continuous_actions'].shape == (2, 5)
-    assert rollouts['actions']['discrete_actions'].shape == (2, 3)
+    steps_per_update = trainer.config['ppo']['steps_per_update']
+    assert rollouts['observations'].shape == (steps_per_update, 107)
+    assert rollouts['actions']['continuous_actions'].shape == (
+        steps_per_update,
+        CONT_DIM,
+    )
+    assert rollouts['actions']['discrete_actions'].shape == (
+        steps_per_update,
+        DISC_DIM,
+    )
 
     # _compute_advantages expects float done flags
     rollouts['dones'] = rollouts['dones'].float()
