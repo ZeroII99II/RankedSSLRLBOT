@@ -1,10 +1,7 @@
-import sys
+import sys, types, numpy as np
 from pathlib import Path
 
-import numpy as np
-
 sys.path.append(str(Path(__file__).resolve().parents[1]))
-import types
 
 # Stub out rlgym modules used by trainer
 rlgym_mod = types.ModuleType("rlgym")
@@ -26,14 +23,52 @@ common_conditions = types.SimpleNamespace(
 )
 terminal_conditions_mod.common_conditions = common_conditions
 
+api_mod = types.ModuleType("rlgym.api")
+config_mod = types.ModuleType("rlgym.api.config")
+
+class ObsBuilder:
+    pass
+
+config_mod.ObsBuilder = ObsBuilder
+class RewardFunction:
+    pass
+
+config_mod.RewardFunction = RewardFunction
+api_mod.config = config_mod
+
+rocket_mod = types.ModuleType("rlgym.rocket_league")
+common_values_mod = types.ModuleType("rlgym.rocket_league.common_values")
+common_values_mod.CAR_MAX_BOOST = 100
+common_values_mod.BOOST_LOCATIONS = []
+common_values_mod.CEILING_Z = 2044
+common_values_mod.BALL_RADIUS = 92.75
+common_values_mod.CAR_MAX_SPEED = 2300
+common_values_mod.__getattr__ = lambda name: 0
+common_values_mod.__file__ = "stub"
+rocket_mod.common_values = common_values_mod
+api_rl_mod = types.ModuleType("rlgym.rocket_league.api")
+
+class GameState:
+    pass
+
+api_rl_mod.GameState = GameState
+rocket_mod.api = api_rl_mod
+
 utils_mod.action_parsers = action_parsers_mod
 utils_mod.terminal_conditions = terminal_conditions_mod
 rlgym_mod.utils = utils_mod
+rlgym_mod.api = api_mod
+rlgym_mod.rocket_league = rocket_mod
 
 sys.modules.setdefault("rlgym", rlgym_mod)
 sys.modules.setdefault("rlgym.utils", utils_mod)
 sys.modules.setdefault("rlgym.utils.action_parsers", action_parsers_mod)
 sys.modules.setdefault("rlgym.utils.terminal_conditions", terminal_conditions_mod)
+sys.modules.setdefault("rlgym.api", api_mod)
+sys.modules.setdefault("rlgym.api.config", config_mod)
+sys.modules.setdefault("rlgym.rocket_league", rocket_mod)
+sys.modules.setdefault("rlgym.rocket_league.common_values", common_values_mod)
+sys.modules.setdefault("rlgym.rocket_league.api", api_rl_mod)
 
 from src.training.train import PPOTrainer
 
@@ -128,15 +163,18 @@ def test_collect_one_step(monkeypatch):
     monkeypatch.setattr('src.training.train.create_ssl_policy', lambda cfg: DummyPolicy())
     monkeypatch.setattr('src.training.train.create_ssl_critic', lambda cfg: DummyCritic())
 
-    trainer = PPOTrainer('cfg', 'curr
+    trainer = PPOTrainer('cfg', 'curr')
     rollouts = trainer._collect_rollouts(2)
     assert rollouts['observations'].shape == (2, 107)
 
-    # Stack action tensors as expected by the trainer
-    actions_list = rollouts['actions']
-    rollouts['actions'] = {
-        k: torch.cat([a[k] for a in actions_list], dim=0) for k in actions_list[0]
-    }
+    # Stack action tensors if returned as list
+    actions_data = rollouts['actions']
+    if isinstance(actions_data, list):
+        rollouts['actions'] = {
+            k: torch.cat([a[k] for a in actions_data], dim=0) for k in actions_data[0]
+        }
+    else:
+        rollouts['actions'] = actions_data
 
     # Ensure stacked action tensors match observation count
     assert rollouts['actions']['continuous_actions'].shape == (2, 5)
@@ -150,20 +188,3 @@ def test_collect_one_step(monkeypatch):
     assert set(['policy_loss', 'value_loss', 'entropy_loss']).issubset(losses)
     for value in losses.values():
         assert np.isfinite(value)
-=======
-    rollouts = trainer._collect_rollouts(1)
-    assert rollouts['observations'].shape == (1, 107)
-    assert rollouts['actions']['continuous_actions'].shape == (1, 5)
-    assert rollouts['actions']['discrete_actions'].shape == (1, 3)
-
-    metrics = trainer._update_policy(rollouts)
-    for key in ('policy_loss', 'value_loss', 'entropy_loss'):
-        assert key in metrics
-        assert np.isfinite(metrics[key])
-
- codex/update-training-logic-and-tests
-    assert rollouts['episode_rewards'] == [0.0]
-    assert rollouts['episode_lengths'] == [1]
-
-
-
