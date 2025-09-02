@@ -429,16 +429,21 @@ class CurriculumManager:
         # Check minimum training steps
         if self.training_steps < current_phase.min_training_steps:
             return False
-        
-        # Check progression gates
-        for metric, threshold in current_phase.progression_gates.items():
-            if metric in eval_metrics:
-                if eval_metrics[metric] < threshold:
-                    return False
-            else:
-                # If metric not available, assume it's not met
+
+        gates = current_phase.progression_gates
+
+        # Some gates apply to overall training statistics rather than evaluation metrics
+        min_games = gates.get("min_games", 0)
+        if self.training_steps < min_games:
+            return False
+
+        # Remaining gates are treated as evaluation metric thresholds
+        for metric, threshold in gates.items():
+            if metric == "min_games":
+                continue
+            if eval_metrics.get(metric, float("-inf")) < threshold:
                 return False
-        
+
         return True
     
     def should_progress(self, eval_metrics: Dict[str, float]) -> bool:
